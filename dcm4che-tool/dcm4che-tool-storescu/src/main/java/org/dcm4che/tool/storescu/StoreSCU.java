@@ -43,17 +43,26 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.security.GeneralSecurityException;
+import java.text.DateFormat;
+import java.text.DecimalFormat;
 import java.text.MessageFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Properties;
 import java.util.ResourceBundle;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+
+import javax.swing.text.DateFormatter;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.OptionBuilder;
@@ -62,6 +71,7 @@ import org.apache.commons.cli.ParseException;
 import org.dcm4che.data.Attributes;
 import org.dcm4che.data.Tag;
 import org.dcm4che.data.UID;
+import org.dcm4che.data.VR;
 import org.dcm4che.io.DicomInputStream;
 import org.dcm4che.io.DicomInputStream.IncludeBulkData;
 import org.dcm4che.net.ApplicationEntity;
@@ -80,6 +90,7 @@ import org.dcm4che.tool.common.DicomFiles;
 import org.dcm4che.util.SafeClose;
 import org.dcm4che.util.StringUtils;
 import org.dcm4che.util.TagUtils;
+import org.dcm4che.util.UIDUtils;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -108,6 +119,8 @@ public class StoreSCU {
     private long totalSize;
     private int filesScanned;
     private int filesSent;
+    private boolean generateUIDs = false;
+    private HashMap<String, String> uidMap;
 
     public StoreSCU(ApplicationEntity ae) throws IOException {
         this.remote = new Connection();
@@ -166,13 +179,23 @@ public class StoreSCU {
         CLIUtils.addResponseTimeoutOption(opts);
         CLIUtils.addPriorityOption(opts);
         CLIUtils.addCommonOptions(opts);
+        CLIUtils.addLogOptions(opts);
+        addUIDsOptions(opts);
         addTmpFileOptions(opts);
         addRelatedSOPClassOptions(opts);
         addAttributesOption(opts);
         addUIDSuffixOption(opts);
         return CLIUtils.parseComandLine(args, opts, rb, StoreSCU.class);
     }
-
+    
+    @SuppressWarnings("static-access")
+    public static void addUIDsOptions(Options opts) { 
+        opts.addOption(OptionBuilder
+            .withLongOpt("gen-uids")
+            .withDescription("Regenerate Study/Series/Object UIDs")
+            .create());
+    }
+    
     @SuppressWarnings("static-access")
     private static void addAttributesOption(Options opts) {
         opts.addOption(OptionBuilder
@@ -281,6 +304,10 @@ public class StoreSCU {
                 if (echo)
                     main.echo();
                 else {
+                    main.generateUIDs = cl.hasOption("gen-uids");
+                    if(main.generateUIDs){
+                        main.uidMap = new HashMap<String, String>();
+                    }
                     t1 = System.currentTimeMillis();
                     main.sendFiles();
                     t2 = System.currentTimeMillis();
@@ -293,9 +320,54 @@ public class StoreSCU {
             if (main.filesScanned > 0) {
                 float s = (t2 - t1) / 1000F;
                 float mb = main.totalSize / 1048576F;
-                System.out.println(MessageFormat.format(rb.getString("sent"),
-                        main.filesSent,
-                        mb, s, mb / s));
+                System.out.println(MessageFormat.format(rb.getString("sent"), main.filesSent, mb, s, mb / s));
+                String filepath = cl.getOptionValue("log-file");
+                if (filepath != null) {
+                    File file = new File(filepath);
+                    Writer writer = null;
+                    try {
+                        writer = new BufferedWriter(new FileWriter(file, true));
+                        DateFormat timeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS");
+                        writer.write("\n");
+                        writer.write(timeFormat.format(new Date()));
+                        writer.write(" *INFO*");
+                        writer.write(" StoreSCU:dicom");
+                        writer.write(" nbFiles:");
+                        writer.write(String.valueOf(main.filesSent));
+                        writer.write(" size:");
+                        writer.write(String.valueOf(main.totalSize));
+                        writer.write(" time:");
+                        writer.write(String.valueOf((t2 - t1)));
+                        writer.write(" rate:");
+                        // rate in kB/s or B/ms
+                        DecimalFormat format = new DecimalFormat("#.##");
+                        writer.write(format.format(new Long(main.totalSize).doubleValue() / (t2 - t1)));
+                        writer.write(" config:");
+                        
+                        int startDirIndex = 0;
+                        for (int i = 0; i < args.length; i++) {
+                            if(args[i].contains("@")){
+                                writer.write(args[i]);
+                                startDirIndex = i +1;
+                                break;
+                            }
+                        }
+                        
+                        writer.write(" dirNames:");
+                        for (int i = startDirIndex; i < args.length; i++) {
+                            if(i > startDirIndex){
+                                writer.write(',');
+                            }
+                            File f = new File(args[i]);    
+                            writer.write(f.getName());
+                        }
+                    } finally {
+                        try {
+                            writer.close();
+                        } catch (Exception ex) {
+                        }
+                    }
+                }
             }
         } catch (ParseException e) {
             System.err.println("storescu: " + e.getMessage());
@@ -429,7 +501,7 @@ public class StoreSCU {
 
     public void send(final File f, long fmiEndPos, String cuid, String iuid,
             String ts) throws IOException, InterruptedException {
-        if (uidSuffix == null && attrs.isEmpty()) {
+        if (uidSuffix == null && attrs.isEmpty() && ! generateUIDs) {
             FileInputStream in = new FileInputStream(f);
             try {
                 in.skip(fmiEndPos);
@@ -443,6 +515,39 @@ public class StoreSCU {
             try {
                 in.setIncludeBulkData(IncludeBulkData.URI);
                 Attributes data = in.readDataset(-1, -1);
+                if(generateUIDs){
+                    // New Study UID
+                    String oldStudyUID = data.getString(Tag.StudyInstanceUID);
+                    String studyUID = uidMap.get(oldStudyUID);
+                    Date date;
+                    if(studyUID == null){
+                        studyUID = UIDUtils.createUID("2.25.35");
+                        uidMap.put(oldStudyUID, studyUID);
+                        long time = System.currentTimeMillis();
+                        date = new Date(time);
+                        uidMap.put("date-" + oldStudyUID, new Long(time).toString());
+                    }
+                    else {
+                      date = new Date(Long.parseLong(uidMap.get("date-" + oldStudyUID)));
+                    }
+                    data.setString(Tag.StudyInstanceUID, VR.UI, studyUID);
+                    
+                    // New Series UID
+                    String oldSeriesUID = data.getString(Tag.SeriesInstanceUID);
+                    String seriesUID = uidMap.get(oldSeriesUID);
+                    if(seriesUID == null){
+                        seriesUID = UIDUtils.createUID("2.25.35");
+                        uidMap.put(oldSeriesUID, seriesUID);
+                    }
+                    data.setString(Tag.SeriesInstanceUID, VR.UI, seriesUID);
+                    
+                    // New Sop UID
+                    iuid = UIDUtils.createUID("2.25.35");
+                    data.setString(Tag.SOPInstanceUID, VR.UI, iuid);
+                    
+                    // Set a new Study date
+                    data.setDate(Tag.StudyDateAndTime, date); 
+                }
                 if (CLIUtils.updateAttributes(data, attrs, uidSuffix))
                     iuid = data.getString(Tag.SOPInstanceUID);
                 as.cstore(cuid, iuid, priority, new DataWriterAdapter(data), ts,

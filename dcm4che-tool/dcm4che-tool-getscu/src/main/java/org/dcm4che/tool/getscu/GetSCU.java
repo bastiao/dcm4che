@@ -38,12 +38,19 @@
 
 package org.dcm4che.tool.getscu;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.security.GeneralSecurityException;
+import java.text.DateFormat;
+import java.text.DecimalFormat;
 import java.text.MessageFormat;
+import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Date;
 import java.util.Properties;
 import java.util.ResourceBundle;
 import java.util.Set;
@@ -129,6 +136,11 @@ public class GetSCU {
     private Attributes keys = new Attributes();
     private int[] inFilter = DEF_IN_FILTER;
     private Association as;
+    
+    private String logPath;
+    private StringBuilder logBuilder;
+    private String endLogLine;
+    private long startRetrieve;
 
     private BasicCStoreSCP storageSCP = new BasicCStoreSCP("*") {
 
@@ -222,6 +234,7 @@ public class GetSCU {
             addKeyOptions(opts);
             addRetrieveLevelOption(opts);
             addStorageDirectoryOptions(opts);
+            CLIUtils.addLogOptions(opts);
             CLIUtils.addConnectOption(opts);
             CLIUtils.addBindOption(opts, "GETSCU");
             CLIUtils.addAEOptions(opts);
@@ -312,13 +325,49 @@ public class GetSCU {
             main.device.setExecutor(executorService);
             main.device.setScheduledExecutor(scheduledExecutorService);
             try {
+                main.logPath = cl.getOptionValue("log-file");
+                if (main.logPath != null) {
+                    CLIUtils.recursiveDelete(main.storageDir, false, LOG);
+                }
+                
+                long startOpen = System.currentTimeMillis();
                 main.open();
+                main.startRetrieve = System.currentTimeMillis();
+
                 List<String> argList = cl.getArgList();
                 if (argList.isEmpty())
                     main.retrieve();
                 else
                     for (String arg : argList)
                         main.retrieve(new File(arg));
+                               
+                if (main.logPath != null) {
+                    main.logBuilder = new StringBuilder();
+                    DateFormat timeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS");
+                    main.logBuilder.append("\n");
+                    main.logBuilder.append(timeFormat.format(new Date()));
+                    main.logBuilder.append(" *INFO*");
+                    main.logBuilder.append(" GetSCU:dicom");
+                    main.logBuilder.append(" association:");
+                    main.logBuilder.append(String.valueOf((main.startRetrieve - startOpen)));
+                    
+                    StringBuilder buf = new StringBuilder(" config:");
+
+                    for (int i = 0; i < args.length; i++) {
+                        if (args[i].contains("@")) {
+                            buf.append(args[i]);
+                            break;
+                        }
+                    }
+                    buf.append(" ref:");
+                    for (int i = 0; i < args.length; i++) {
+                        if (args[i].contains("-m")) {
+                            if (i + 1 < args.length)
+                                buf.append(args[i + 1]);
+                        }
+                    }
+                    main.endLogLine = buf.toString();
+                }
             } finally {
                 main.close();
                 executorService.shutdown();
@@ -335,6 +384,44 @@ public class GetSCU {
         }
     }
 
+
+    private void logEndOfRetrieve() {
+
+        if (logPath != null) {
+            long endRetrieve = System.currentTimeMillis();
+            File file = new File(logPath);
+            Writer writer = null;
+            try {
+                File[] files = storageDir.listFiles();
+                logBuilder.append(" nbFiles:");
+                logBuilder.append(files.length);
+                logBuilder.append(" size:");
+                long size = 0;
+                for (File f : files) {
+                    size += f.length();
+                }
+                logBuilder.append(size);
+                logBuilder.append(" time:");
+                logBuilder.append(String.valueOf(endRetrieve - startRetrieve));
+                logBuilder.append(" rate:");
+                // rate in kB/s or B/ms
+                DecimalFormat format = new DecimalFormat("#.##");
+                logBuilder.append(format.format(new Long(size).doubleValue() / (endRetrieve - startRetrieve)));
+                logBuilder.append(endLogLine);
+                writer = new BufferedWriter(new FileWriter(file, true));
+                writer.write(logBuilder.toString());
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    writer.close();
+                } catch (Exception ex) {
+                }
+                CLIUtils.recursiveDelete(storageDir, false, LOG);
+            }
+        }
+    }
+    
     private static void configureServiceClass(GetSCU main, CommandLine cl)
             throws Exception {
         main.setInformationModel(informationModelOf(cl),
@@ -382,7 +469,7 @@ public class GetSCU {
     private static void configureStorageDirectory(GetSCU main, CommandLine cl) {
         if (!cl.hasOption("ignore")) {
             main.setStorageDirectory(
-                    new File(cl.getOptionValue("directory", ".")));
+                    new File(cl.getOptionValue("directory", "./ret-dicom")));
         }
     }
 
@@ -445,6 +532,7 @@ public class GetSCU {
             public void onDimseRSP(Association as, Attributes cmd,
                     Attributes data) {
                 super.onDimseRSP(as, cmd, data);
+                logEndOfRetrieve();
             }
         };
 

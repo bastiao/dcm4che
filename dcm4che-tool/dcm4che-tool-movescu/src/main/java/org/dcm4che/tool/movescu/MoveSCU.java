@@ -38,10 +38,17 @@
 
 package org.dcm4che.tool.movescu;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.security.GeneralSecurityException;
+import java.text.DateFormat;
+import java.text.DecimalFormat;
 import java.text.MessageFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.concurrent.ExecutorService;
@@ -58,25 +65,36 @@ import org.dcm4che.data.Tag;
 import org.dcm4che.data.UID;
 import org.dcm4che.data.VR;
 import org.dcm4che.io.DicomInputStream;
+import org.dcm4che.io.DicomOutputStream;
 import org.dcm4che.net.ApplicationEntity;
 import org.dcm4che.net.Association;
 import org.dcm4che.net.Connection;
 import org.dcm4che.net.Device;
 import org.dcm4che.net.DimseRSPHandler;
 import org.dcm4che.net.IncompatibleConnectionException;
+import org.dcm4che.net.PDVInputStream;
+import org.dcm4che.net.Status;
+import org.dcm4che.net.TransferCapability;
 import org.dcm4che.net.pdu.AAssociateRQ;
 import org.dcm4che.net.pdu.ExtendedNegotiation;
 import org.dcm4che.net.pdu.PresentationContext;
+import org.dcm4che.net.service.BasicCEchoSCP;
+import org.dcm4che.net.service.BasicCStoreSCP;
+import org.dcm4che.net.service.DicomServiceException;
+import org.dcm4che.net.service.DicomServiceRegistry;
 import org.dcm4che.tool.common.CLIUtils;
 import org.dcm4che.util.SafeClose;
 import org.dcm4che.util.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
  *
  */
 public class MoveSCU extends Device {
-
+    private static final Logger LOG = LoggerFactory.getLogger(MoveSCU.class);
+    
     private static enum InformationModel {
         PatientRoot(UID.PatientRootQueryRetrieveInformationModelMOVE, "STUDY"),
         StudyRoot(UID.StudyRootQueryRetrieveInformationModelMOVE, "STUDY"),
@@ -113,7 +131,39 @@ public class MoveSCU extends Device {
     private Attributes keys = new Attributes();
     private int[] inFilter = DEF_IN_FILTER;
     private Association as;
+    
+    private String logPath;
+    private StringBuilder logBuilder;
+    private String endLogLine;
+    private long startRetrieve;
+    private File storageDir;
+    private final Device device = new Device("storescp");
 
+    private BasicCStoreSCP storageSCP = new BasicCStoreSCP("*") {
+
+        @Override
+        protected void store(Association as, PresentationContext pc, Attributes rq,
+                PDVInputStream data, Attributes rsp)
+                throws IOException {
+            if (storageDir == null)
+                return;
+
+            String iuid = rq.getString(Tag.AffectedSOPInstanceUID);
+            String cuid = rq.getString(Tag.AffectedSOPClassUID);
+            String tsuid = pc.getTransferSyntax();
+            File file = new File(storageDir, iuid );
+            try {
+                storeTo(as, as.createFileMetaInformation(iuid, cuid, tsuid),
+                        data, file);
+            } catch (Exception e) {
+                throw new DicomServiceException(Status.ProcessingFailure, e);
+            }
+
+        }
+
+
+    };
+    
     public MoveSCU() throws IOException {
         super("movescu");
         addConnection(conn);
@@ -121,6 +171,18 @@ public class MoveSCU extends Device {
         ae.addConnection(conn);
     }
 
+    private void storeTo(Association as, Attributes fmi, PDVInputStream data, File file) throws IOException {
+        LOG.info("{}: M-WRITE {}", as, file);
+        file.getParentFile().mkdirs();
+        DicomOutputStream out = new DicomOutputStream(file);
+        try {
+            out.writeFileMetaInformation(fmi);
+            data.copyTo(out);
+        } finally {
+            SafeClose.close(out);
+        }
+    }
+    
     public final void setPriority(int priority) {
         this.priority = priority;
     }
@@ -159,6 +221,7 @@ public class MoveSCU extends Device {
             addKeyOptions(opts);
             addRetrieveLevelOption(opts);
             addDestinationOption(opts);
+            CLIUtils.addLogOptions(opts);
             CLIUtils.addConnectOption(opts);
             CLIUtils.addBindOption(opts, "MOVESCU");
             CLIUtils.addAEOptions(opts);
@@ -219,6 +282,18 @@ public class MoveSCU extends Device {
         try {
             CommandLine cl = parseComandLine(args);
             MoveSCU main = new MoveSCU();
+            main.logPath = cl.getOptionValue("log-file");
+            if (main.logPath != null) {
+                main.storageDir = new File("./ret-dicom");
+                main.storageDir.mkdirs();
+                DicomServiceRegistry serviceRegistry = new DicomServiceRegistry();
+                serviceRegistry.addDicomService(new BasicCEchoSCP());
+                serviceRegistry.addDicomService(main.storageSCP);
+                main.device.setDimseRQHandler(serviceRegistry);
+                main.ae.setAssociationAcceptor(true);
+                // Accept all SOP Classes
+                main.ae.addTransferCapability(new TransferCapability(null, "*", TransferCapability.Role.SCP, "*"));
+            }
             CLIUtils.configureConnect(main.remote, main.rq, cl);
             CLIUtils.configureBind(main.conn, main.ae, cl);
             CLIUtils.configure(main.conn, cl);
@@ -234,14 +309,48 @@ public class MoveSCU extends Device {
                     Executors.newSingleThreadScheduledExecutor();
             main.setExecutor(executorService);
             main.setScheduledExecutor(scheduledExecutorService);
-            try {
+            try {  
+                if (main.logPath != null) {
+                    CLIUtils.recursiveDelete(main.storageDir, false, LOG);
+                }
+                
+                long startOpen = System.currentTimeMillis();
                 main.open();
+                main.startRetrieve = System.currentTimeMillis();
                 List<String> argList = cl.getArgList();
                 if (argList.isEmpty())
                     main.retrieve();
                 else
                     for (String arg : argList)
                         main.retrieve(new File(arg));
+                
+       if (main.logPath != null) {
+           main.logBuilder = new StringBuilder();
+           DateFormat timeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS");
+           main.logBuilder.append("\n");
+           main.logBuilder.append(timeFormat.format(new Date()));
+           main.logBuilder.append(" *INFO*");
+           main.logBuilder.append(" MoveSCU:dicom");
+           main.logBuilder.append(" association:");
+           main.logBuilder.append(String.valueOf((main.startRetrieve - startOpen)));
+           
+           StringBuilder buf = new StringBuilder(" config:");
+
+           for (int i = 0; i < args.length; i++) {
+               if (args[i].contains("@")) {
+                   buf.append(args[i]);
+                   break;
+               }
+           }
+           buf.append(" ref:");
+           for (int i = 0; i < args.length; i++) {
+               if (args[i].contains("-m")) {
+                   if (i + 1 < args.length)
+                       buf.append(args[i + 1]);
+               }
+           }
+           main.endLogLine = buf.toString();
+       }
             } finally {
                 main.close();
                 executorService.shutdown();
@@ -258,6 +367,45 @@ public class MoveSCU extends Device {
         }
     }
 
+
+    private void logEndOfRetrieve() {
+
+        if (logPath != null) {
+            long endRetrieve = System.currentTimeMillis();
+            File file = new File(logPath);
+            Writer writer = null;
+            try {
+                File[] files = storageDir.listFiles();
+                logBuilder.append(" nbFiles:");
+                logBuilder.append(files.length);
+                logBuilder.append(" size:");
+                long size = 0;
+                for (File f : files) {
+                    size += f.length();
+                }
+                logBuilder.append(size);
+                logBuilder.append(" time:");
+                logBuilder.append(String.valueOf(endRetrieve - startRetrieve));
+                logBuilder.append(" rate:");
+                // rate in kB/s or B/ms
+                DecimalFormat format = new DecimalFormat("#.##");
+                logBuilder.append(format.format(new Long(size).doubleValue() / (endRetrieve - startRetrieve)));
+                logBuilder.append(endLogLine);
+                writer = new BufferedWriter(new FileWriter(file, true));
+                writer.write(logBuilder.toString());
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    writer.close();
+                } catch (Exception ex) {
+                }
+                CLIUtils.recursiveDelete(storageDir, false, LOG);
+            }
+        }
+    }
+   
+    
     private static void configureServiceClass(MoveSCU main, CommandLine cl) throws ParseException {
         main.setInformationModel(informationModelOf(cl),
                 CLIUtils.transferSyntaxesOf(cl), cl.hasOption("relational"));
@@ -328,6 +476,7 @@ public class MoveSCU extends Device {
             public void onDimseRSP(Association as, Attributes cmd,
                     Attributes data) {
                 super.onDimseRSP(as, cmd, data);
+                logEndOfRetrieve();
             }
         };
 

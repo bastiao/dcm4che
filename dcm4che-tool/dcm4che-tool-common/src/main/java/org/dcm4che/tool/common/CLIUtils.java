@@ -72,6 +72,7 @@ import org.dcm4che.net.pdu.UserIdentityRQ;
 import org.dcm4che.util.SafeClose;
 import org.dcm4che.util.StreamUtils;
 import org.dcm4che.util.StringUtils;
+import org.slf4j.Logger;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -765,4 +766,36 @@ public class CLIUtils {
         return true;
     }
 
+    // ************* Performance Test ***************** //
+    @SuppressWarnings("static-access")
+    public static void addLogOptions(Options opts) {
+        opts.addOption(OptionBuilder.hasArg().withArgName("file").withDescription("Log file for performance test")
+            .withLongOpt("log-file").create(null));
+    }
+
+    public static void recursiveDelete(File rootDir, boolean deleteRoot, Logger LOG) {
+        if ((rootDir == null) || !rootDir.isDirectory()) {
+            return;
+        }
+        File[] childDirs = rootDir.listFiles();
+        if (childDirs != null) {
+            for (File f : childDirs) {
+                if (f.isDirectory()) {
+                    recursiveDelete(f, deleteRoot, LOG);
+                    f.delete();
+                } else {
+                    try {
+                        if (!f.delete()) {
+                            LOG.info("Cannot delete {}", f.getPath()); //$NON-NLS-1$
+                        }
+                    } catch (Exception e) {
+                        LOG.error(e.getMessage());
+                    }
+                }
+            }
+        }
+        if (deleteRoot) {
+            rootDir.delete();
+        }
+    }
 }

@@ -39,13 +39,19 @@
 package org.dcm4che.tool.findscu;
 
 import java.io.BufferedOutputStream;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.Writer;
 import java.security.GeneralSecurityException;
+import java.text.DateFormat;
 import java.text.DecimalFormat;
 import java.text.MessageFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.ResourceBundle;
@@ -226,6 +232,7 @@ public class FindSCU {
             addOutputOptions(opts);
             addQueryLevelOption(opts);
             addCancelOption(opts);
+            CLIUtils.addLogOptions(opts);
             CLIUtils.addConnectOption(opts);
             CLIUtils.addBindOption(opts, "FINDSCU");
             CLIUtils.addAEOptions(opts);
@@ -235,6 +242,7 @@ public class FindSCU {
             return CLIUtils.parseComandLine(args, opts, rb, FindSCU.class);
     }
 
+    
     @SuppressWarnings("static-access")
     private static void addServiceClassOptions(Options opts) {
         opts.addOption(OptionBuilder
@@ -335,15 +343,51 @@ public class FindSCU {
             ScheduledExecutorService scheduledExecutorService =
                     Executors.newSingleThreadScheduledExecutor();
             main.device.setExecutor(executorService);
-            main.device.setScheduledExecutor(scheduledExecutorService);
+            main.device.setScheduledExecutor(scheduledExecutorService);           
+            
             try {
+                long startOpen = System.currentTimeMillis();
                 main.open();
+                long startQuery = System.currentTimeMillis();
                 List<String> argList = cl.getArgList();
                 if (argList.isEmpty())
                     main.query();
                 else
                     for (String arg : argList)
                         main.query(new File(arg));
+                
+                long endQuery = System.currentTimeMillis();
+                String filepath = cl.getOptionValue("log-file");
+                if (filepath != null) {
+                    File file = new File(filepath);
+                    Writer writer = null;
+                    try {
+                        writer = new BufferedWriter(new FileWriter(file, true));
+                        DateFormat timeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS");
+                        writer.write("\n");
+                        writer.write(timeFormat.format(new Date()));
+                        writer.write(" *INFO*");
+                        writer.write(" FindSCU:dicom");
+                        writer.write(" association:");
+                        writer.write(String.valueOf((startQuery - startOpen)));
+                        writer.write(" find:");
+                        writer.write(String.valueOf((endQuery - startQuery)));
+                        writer.write(" config:");
+                        
+                        for (int i = 0; i < args.length; i++) {
+                            if(args[i].contains("@")){
+                                writer.write(args[i]);
+                                break;
+                            }
+                        }
+
+                    } finally {
+                        try {
+                            writer.close();
+                        } catch (Exception ex) {
+                        }
+                    }
+                }
             } finally {
                 main.close();
                 executorService.shutdown();
