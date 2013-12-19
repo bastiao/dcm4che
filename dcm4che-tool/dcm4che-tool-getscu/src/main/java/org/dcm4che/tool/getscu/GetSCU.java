@@ -532,7 +532,12 @@ public class GetSCU {
             public void onDimseRSP(Association as, Attributes cmd,
                     Attributes data) {
                 super.onDimseRSP(as, cmd, data);
-                logEndOfRetrieve();
+				if(cmd != null){
+					int rop = cmd.getInt(Tag.NumberOfRemainingSuboperations, 0);
+					if(rop == 0){
+						logEndOfRetrieve();
+					}
+				}
             }
         };
 

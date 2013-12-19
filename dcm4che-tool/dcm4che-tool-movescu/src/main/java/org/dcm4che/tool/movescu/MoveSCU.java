@@ -65,24 +65,17 @@ import org.dcm4che.data.Tag;
 import org.dcm4che.data.UID;
 import org.dcm4che.data.VR;
 import org.dcm4che.io.DicomInputStream;
-import org.dcm4che.io.DicomOutputStream;
 import org.dcm4che.net.ApplicationEntity;
 import org.dcm4che.net.Association;
 import org.dcm4che.net.Connection;
 import org.dcm4che.net.Device;
 import org.dcm4che.net.DimseRSPHandler;
 import org.dcm4che.net.IncompatibleConnectionException;
-import org.dcm4che.net.PDVInputStream;
-import org.dcm4che.net.Status;
-import org.dcm4che.net.TransferCapability;
 import org.dcm4che.net.pdu.AAssociateRQ;
 import org.dcm4che.net.pdu.ExtendedNegotiation;
 import org.dcm4che.net.pdu.PresentationContext;
-import org.dcm4che.net.service.BasicCEchoSCP;
-import org.dcm4che.net.service.BasicCStoreSCP;
-import org.dcm4che.net.service.DicomServiceException;
-import org.dcm4che.net.service.DicomServiceRegistry;
 import org.dcm4che.tool.common.CLIUtils;
+import org.dcm4che.tool.storescp.StoreSCP;
 import org.dcm4che.util.SafeClose;
 import org.dcm4che.util.StringUtils;
 import org.slf4j.Logger;
@@ -137,50 +130,12 @@ public class MoveSCU extends Device {
     private String endLogLine;
     private long startRetrieve;
     private File storageDir;
-    private final Device device = new Device("storescp");
-
-    private BasicCStoreSCP storageSCP = new BasicCStoreSCP("*") {
-
-        @Override
-        protected void store(Association as, PresentationContext pc, Attributes rq,
-                PDVInputStream data, Attributes rsp)
-                throws IOException {
-            if (storageDir == null)
-                return;
-
-            String iuid = rq.getString(Tag.AffectedSOPInstanceUID);
-            String cuid = rq.getString(Tag.AffectedSOPClassUID);
-            String tsuid = pc.getTransferSyntax();
-            File file = new File(storageDir, iuid );
-            try {
-                storeTo(as, as.createFileMetaInformation(iuid, cuid, tsuid),
-                        data, file);
-            } catch (Exception e) {
-                throw new DicomServiceException(Status.ProcessingFailure, e);
-            }
-
-        }
-
-
-    };
-    
+   
     public MoveSCU() throws IOException {
         super("movescu");
         addConnection(conn);
         addApplicationEntity(ae);
         ae.addConnection(conn);
-    }
-
-    private void storeTo(Association as, Attributes fmi, PDVInputStream data, File file) throws IOException {
-        LOG.info("{}: M-WRITE {}", as, file);
-        file.getParentFile().mkdirs();
-        DicomOutputStream out = new DicomOutputStream(file);
-        try {
-            out.writeFileMetaInformation(fmi);
-            data.copyTo(out);
-        } finally {
-            SafeClose.close(out);
-        }
     }
     
     public final void setPriority(int priority) {
@@ -284,15 +239,25 @@ public class MoveSCU extends Device {
             MoveSCU main = new MoveSCU();
             main.logPath = cl.getOptionValue("log-file");
             if (main.logPath != null) {
-                main.storageDir = new File("./ret-dicom");
+                String tempDir = System.getProperty("java.io.tmpdir"); //$NON-NLS-1$
+                File tdir;
+                if (tempDir == null || tempDir.length() == 1) {
+                    String dir = System.getProperty("user.home", ""); //$NON-NLS-1$ //$NON-NLS-2$
+                    tdir = new File(dir, "dicoms");
+                } else {
+                    tdir = new File(tempDir, "dicoms");
+                }
+                main.storageDir = tdir;
                 main.storageDir.mkdirs();
-                DicomServiceRegistry serviceRegistry = new DicomServiceRegistry();
-                serviceRegistry.addDicomService(new BasicCEchoSCP());
-                serviceRegistry.addDicomService(main.storageSCP);
-                main.device.setDimseRQHandler(serviceRegistry);
-                main.ae.setAssociationAcceptor(true);
-                // Accept all SOP Classes
-                main.ae.addTransferCapability(new TransferCapability(null, "*", TransferCapability.Role.SCP, "*"));
+                
+				if (!cl.hasOption("b"))
+					throw new IllegalArgumentException(
+							"-b configuration is missing!");
+
+				StoreSCP.main(new String[] { "-b", cl.getOptionValue("b"),
+						"--accept-unknown", "--directory",
+						main.storageDir.getAbsolutePath() });
+
             }
             CLIUtils.configureConnect(main.remote, main.rq, cl);
             CLIUtils.configureBind(main.conn, main.ae, cl);
@@ -401,6 +366,7 @@ public class MoveSCU extends Device {
                 } catch (Exception ex) {
                 }
                 CLIUtils.recursiveDelete(storageDir, false, LOG);
+                System.exit(0);
             }
         }
     }
@@ -476,7 +442,12 @@ public class MoveSCU extends Device {
             public void onDimseRSP(Association as, Attributes cmd,
                     Attributes data) {
                 super.onDimseRSP(as, cmd, data);
-                logEndOfRetrieve();
+				if(cmd != null){
+					int rop = cmd.getInt(Tag.NumberOfRemainingSuboperations, 0);
+					if (rop == 0) {
+						logEndOfRetrieve();
+					}
+				}
             }
         };
 
