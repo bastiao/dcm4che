@@ -130,6 +130,7 @@ public class MoveSCU extends Device {
     private String endLogLine;
     private long startRetrieve;
     private File storageDir;
+    private int remainingTask = -1;
    
     public MoveSCU() throws IOException {
         super("movescu");
@@ -444,9 +445,10 @@ public class MoveSCU extends Device {
                 super.onDimseRSP(as, cmd, data);
 				if(cmd != null){
 					int rop = cmd.getInt(Tag.NumberOfRemainingSuboperations, 0);
-					if (rop == 0) {
+					if (rop == 0 || (rop == 1 && remainingTask == rop)) {
 						logEndOfRetrieve();
 					}
+					remainingTask = rop;
 				}
             }
         };

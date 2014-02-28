@@ -154,6 +154,11 @@ public class FindSCU {
 
     private Association as;
     private AtomicInteger totNumMatches = new AtomicInteger();
+    
+    private String logPath;
+    private StringBuilder logBuilder;
+    private String endLogLine;
+    private long startQuery;
 
     public FindSCU() throws IOException {
         device.addConnection(conn);
@@ -348,46 +353,47 @@ public class FindSCU {
             try {
                 long startOpen = System.currentTimeMillis();
                 main.open();
-                long startQuery = System.currentTimeMillis();
+                main.startQuery = System.currentTimeMillis();
+                
+                main.logPath = cl.getOptionValue("log-file");
+                if (main.logPath != null) {
+                    main.logBuilder = new StringBuilder();
+                    DateFormat timeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS");
+                    main.logBuilder.append("\n");
+                    main.logBuilder.append(timeFormat.format(new Date()));
+                    main.logBuilder.append(" *INFO*");
+                    main.logBuilder.append(" FindSCU:dicom");
+                    main.logBuilder.append(" association:");
+                    main.logBuilder.append(String.valueOf((main.startQuery - startOpen)));
+                    
+                    StringBuilder buf = new StringBuilder(" config:");
+                    for (int i = 0; i < args.length; i++) {
+                        if (args[i].equals("-c")) {
+                            if (i + 1 < args.length)
+                                buf.append(args[i + 1]);
+                            break;
+                        }
+                    }
+                    buf.append(" params:\"");
+                    for (int i = 0; i < args.length; i++) {
+                        if (args[i].equals("-m") || args[i].equals("-r")) {
+                            buf.append(" ");
+                            buf.append(args[i]);
+                            buf.append(" ");
+                            if (i + 1 < args.length)
+                                buf.append(args[i + 1]);
+                        }
+                    }
+                    buf.append("\"");
+                    main.endLogLine = buf.toString();
+                }
+                
                 List<String> argList = cl.getArgList();
                 if (argList.isEmpty())
                     main.query();
                 else
                     for (String arg : argList)
-                        main.query(new File(arg));
-                
-                long endQuery = System.currentTimeMillis();
-                String filepath = cl.getOptionValue("log-file");
-                if (filepath != null) {
-                    File file = new File(filepath);
-                    Writer writer = null;
-                    try {
-                        writer = new BufferedWriter(new FileWriter(file, true));
-                        DateFormat timeFormat = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss.SSS");
-                        writer.write("\n");
-                        writer.write(timeFormat.format(new Date()));
-                        writer.write(" *INFO*");
-                        writer.write(" FindSCU:dicom");
-                        writer.write(" association:");
-                        writer.write(String.valueOf((startQuery - startOpen)));
-                        writer.write(" find:");
-                        writer.write(String.valueOf((endQuery - startQuery)));
-                        writer.write(" config:");
-                        
-                        for (int i = 0; i < args.length; i++) {
-                            if(args[i].contains("@")){
-                                writer.write(args[i]);
-                                break;
-                            }
-                        }
-
-                    } finally {
-                        try {
-                            writer.close();
-                        } catch (Exception ex) {
-                        }
-                    }
-                }
+                        main.query(new File(arg));                                
             } finally {
                 main.close();
                 executorService.shutdown();
@@ -503,6 +509,7 @@ public class FindSCU {
 
             int cancelAfter = FindSCU.this.cancelAfter;
             int numMatches;
+           
 
             @Override
             public void onDimseRSP(Association as, Attributes cmd,
@@ -519,6 +526,9 @@ public class FindSCU {
                         } catch (IOException e) {
                             e.printStackTrace();
                         }
+                }
+                else {
+                    logEndOfRetrieve();
                 }
             }
         };
@@ -587,5 +597,26 @@ public class FindSCU {
             xsltTpls = tpls = tf.newTemplates(new StreamSource(xsltFile));
 
         return tf.newTransformerHandler(tpls);
+    }
+    private void logEndOfRetrieve() {
+        if (logPath != null) {
+            long endQuery = System.currentTimeMillis();
+            File file = new File(logPath);
+            Writer writer = null;
+            try {
+                logBuilder.append(" time:");
+                logBuilder.append(String.valueOf((endQuery - startQuery)));
+                logBuilder.append(endLogLine);
+                writer = new BufferedWriter(new FileWriter(file, true));
+                writer.write(logBuilder.toString());
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    writer.close();
+                } catch (Exception ex) {
+                }
+            }
+        }
     }
 }
