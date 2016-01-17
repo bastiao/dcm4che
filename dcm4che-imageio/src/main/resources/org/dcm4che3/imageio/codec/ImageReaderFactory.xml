@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ImageReaderFactory>
 	<element tsuid="1.2.840.10008.1.2.4.50" mime="image/jpeg">
+		<reader format="jpeg" name="Native IJG jpeg decoder"
+			sys="linux-x86,linux-x86-64,windows-x86,windows-x86-64,macosx-x86-64"
+			class="org.weasis.jpeg.NativeJPEGImageReader" />
 		<reader format="jpeg" name="Sun native jpeg decoder"
 			sys="linux-x86,linux-x86-64,windows-x86,solaris-x86,solaris-x86-64,solaris-sparc,solaris-sparcv9"
 			class="com.sun.media.imageioimpl.plugins.jpeg.CLibJPEGImageReader" />
@@ -8,16 +11,25 @@
 			class="*" />
 	</element>
 	<element tsuid="1.2.840.10008.1.2.4.51">
+		<reader format="jpeg" name="Native IJG jpeg decoder"
+			sys="linux-x86,linux-x86-64,windows-x86,windows-x86-64,macosx-x86-64"
+			class="org.weasis.jpeg.NativeJPEGImageReader" />
 		<reader format="jpeg" name="Sun native jpeg decoder"
 			sys="linux-x86,linux-x86-64,windows-x86,solaris-x86,solaris-x86-64,solaris-sparc,solaris-sparcv9"
 			class="com.sun.media.imageioimpl.plugins.jpeg.CLibJPEGImageReader" />
 	</element>
 	<element tsuid="1.2.840.10008.1.2.4.57">
+		<reader format="jpeg" name="Native IJG jpeg decoder"
+			sys="linux-x86,linux-x86-64,windows-x86,windows-x86-64,macosx-x86-64"
+			class="org.weasis.jpeg.NativeJPEGImageReader" />
 		<reader format="jpeg" name="Sun native jpeg decoder"
 			sys="linux-x86,linux-x86-64,windows-x86,solaris-x86,solaris-x86-64,solaris-sparc,solaris-sparcv9"
 			class="com.sun.media.imageioimpl.plugins.jpeg.CLibJPEGImageReader" />
 	</element>
 	<element tsuid="1.2.840.10008.1.2.4.70">
+		<reader format="jpeg" name="Native IJG jpeg decoder"
+			sys="linux-x86,linux-x86-64,windows-x86,windows-x86-64,macosx-x86-64"
+			class="org.weasis.jpeg.NativeJPEGImageReader" />
 		<reader format="jpeg" name="Sun native jpeg decoder"
 			sys="linux-x86,linux-x86-64,windows-x86,solaris-x86,solaris-x86-64,solaris-sparc,solaris-sparcv9"
 			class="com.sun.media.imageioimpl.plugins.jpeg.CLibJPEGImageReader" />
@@ -40,6 +52,12 @@
 			class="com.sun.media.imageioimpl.plugins.jpeg.CLibJPEGImageReader" />
 	</element>
 	<element tsuid="1.2.840.10008.1.2.4.90" mime="image/jp2">
+		<reader format="jpeg2000" name="Native Kakadu decoder"
+			sys="linux-x86,linux-x86-64,windows-x86,windows-x86-64,macosx-x86-64"
+			class="org.weasis.kdu.NativeJ2kImageReader" />
+		<reader format="jpeg2000" name="Native OpenJPEG decoder"
+			sys="linux-x86,linux-x86-64,windows-x86,windows-x86-64,macosx-x86-64"
+			class="org.weasis.openjpeg.NativeJ2kImageReader" />
 		<reader format="jpeg2000" name="Sun native j2k decoder"
 			sys="linux-x86,linux-x86-64,windows-x86,solaris-x86,solaris-x86-64,solaris-sparc,solaris-sparcv9"
 			class="com.sun.media.imageioimpl.plugins.jpeg2000.J2KImageReaderCodecLib" />
@@ -47,6 +65,12 @@
 			class="com.sun.media.imageioimpl.plugins.jpeg2000.J2KImageReader" />
 	</element>
 	<element tsuid="1.2.840.10008.1.2.4.91">
+		<reader format="jpeg2000" name="Native Kakadu decoder"
+			sys="linux-x86,linux-x86-64,windows-x86,windows-x86-64,macosx-x86-64"
+			class="org.weasis.kdu.NativeJ2kImageReader" />
+		<reader format="jpeg2000" name="Native OpenJPEG decoder"
+			sys="linux-x86,linux-x86-64,windows-x86,windows-x86-64,macosx-x86-64"
+			class="org.weasis.openjpeg.NativeJ2kImageReader" />
 		<reader format="jpeg2000" name="Sun native j2k decoder"
 			sys="linux-x86,linux-x86-64,windows-x86,solaris-x86,solaris-x86-64,solaris-sparc,solaris-sparcv9"
 			class="com.sun.media.imageioimpl.plugins.jpeg2000.J2KImageReaderCodecLib" />
