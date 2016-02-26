@@ -38,9 +38,13 @@
 package org.dcm4che3.conf.ldap.imageio;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
 
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.ImageWriter;
 import javax.naming.NameNotFoundException;
 import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
@@ -53,6 +57,8 @@ import org.dcm4che3.conf.api.ConfigurationException;
 import org.dcm4che3.conf.ldap.LdapDicomConfigurationExtension;
 import org.dcm4che3.conf.ldap.LdapUtils;
 import org.dcm4che3.imageio.codec.ImageWriterFactory;
+import org.dcm4che3.imageio.codec.ImageReaderFactory.ImageReaderParam;
+import org.dcm4che3.imageio.codec.ImageWriterFactory.ImageWriterItem;
 import org.dcm4che3.imageio.codec.ImageWriterFactory.ImageWriterParam;
 import org.dcm4che3.net.Device;
 import org.dcm4che3.net.imageio.ImageWriterExtension;
@@ -81,17 +87,21 @@ public class LdapImageWriterConfiguration extends LdapDicomConfigurationExtensio
         String imageWritersDN = CN_IMAGE_READER_FACTORY + deviceDN;
         config.createSubcontext(imageWritersDN,
                 LdapUtils.attrs("dcmImageWriterFactory", "cn", "Image Writer Factory"));
-        for (Entry<String, ImageWriterParam> entry : factory.getEntries()) {
+        for (Entry<String, List<ImageWriterParam>> entry : factory.getEntries()) {
             String tsuid = entry.getKey();
-            config.createSubcontext(dnOf(tsuid, imageWritersDN),
-                    storeTo(tsuid, entry.getValue(), new BasicAttributes(true)));
+            ImageWriterParam param = ImageWriterFactory.getImageWriterParam(entry.getValue());
+            if (param != null) {
+                config.createSubcontext(dnOf(tsuid, imageWritersDN),
+                    storeTo(tsuid, param, new BasicAttributes(true)));
+            }
         }
-    }
+    }    
 
     private Attributes storeTo(String tsuid, ImageWriterParam param, Attributes attrs) {
         attrs.put("objectclass", "dcmImageWriter");
         attrs.put("dicomTransferSyntax", tsuid);
         attrs.put("dcmIIOFormatName", param.formatName);
+        attrs.put("dcmIIOName", param.name);
         LdapUtils.storeNotNull(attrs, "dcmJavaClassName", param.className);
         LdapUtils.storeNotNull(attrs, "dcmPatchJPEGLS", param.patchJPEGLS);
         LdapUtils.storeNotEmpty(attrs, "dcmImageWriteParam", param.getImageWriteParams());
@@ -117,14 +127,11 @@ public class LdapImageWriterConfiguration extends LdapDicomConfigurationExtensio
                 Attributes attrs = sr.getAttributes();
                 factory.put(
                         LdapUtils.stringValue(attrs.get("dicomTransferSyntax"), null),
-                        new ImageWriterParam(
-                                LdapUtils.stringValue(
-                                        attrs.get("dcmIIOFormatName"), null),
-                                LdapUtils.stringValue(
-                                        attrs.get("dcmJavaClassName"), null),
-                                        LdapUtils.stringValue(
-                                                attrs.get("dcmPatchJPEGLS"), null),
-                               		LdapUtils.stringArray(attrs.get("dcmImageWriteParam"))));
+                    new ImageWriterParam(LdapUtils.stringValue(attrs.get("dcmIIOFormatName"), null),
+                        LdapUtils.stringValue(attrs.get("dcmJavaClassName"), null),
+                        LdapUtils.stringValue(attrs.get("dcmPatchJPEGLS"), null),
+                        LdapUtils.stringArray(attrs.get("dcmImageWriteParam")),
+                        LdapUtils.stringValue(attrs.get("dcmIIOName"), "unknown")));
             }
         } finally {
            LdapUtils.safeClose(ne);
@@ -151,21 +158,23 @@ public class LdapImageWriterConfiguration extends LdapDicomConfigurationExtensio
         String imageWritersDN = CN_IMAGE_READER_FACTORY + deviceDN;
         ImageWriterFactory factory = ext.getImageWriterFactory();
         ImageWriterFactory prevFactory = prevExt.getImageWriterFactory();
-        for (Entry<String, ImageWriterParam> entry : prevFactory.getEntries()) {
+        for (Entry<String, List<ImageWriterParam>> entry : prevFactory.getEntries()) {
             String tsuid = entry.getKey();
-            if (factory.get(tsuid) == null)
+            ImageWriterParam param = ImageWriterFactory.getImageWriterParam(factory.get(tsuid));
+            if (param == null)
                 config.destroySubcontext(dnOf(tsuid, imageWritersDN));
         }
-        for (Entry<String, ImageWriterParam> entry : factory.getEntries()) {
+        for (Entry<String, List<ImageWriterParam>> entry : factory.getEntries()) {
             String tsuid = entry.getKey();
             String dn = dnOf(tsuid, imageWritersDN);
-            ImageWriterParam prevParam = prevFactory.get(tsuid);
+            ImageWriterParam param = ImageWriterFactory.getImageWriterParam(entry.getValue());
+            ImageWriterParam prevParam = ImageWriterFactory.getImageWriterParam(prevFactory.get(tsuid));
             if (prevParam == null)
                 config.createSubcontext(dn,
-                        storeTo(tsuid, entry.getValue(), new BasicAttributes(true)));
+                        storeTo(tsuid, param, new BasicAttributes(true)));
             else
                 config.modifyAttributes(dn,
-                        storeDiffs(prevParam, entry.getValue(), new ArrayList<ModificationItem>()));
+                        storeDiffs(prevParam, param, new ArrayList<ModificationItem>()));
         }
     }
 
@@ -173,6 +182,8 @@ public class LdapImageWriterConfiguration extends LdapDicomConfigurationExtensio
             ImageWriterParam param, List<ModificationItem> mods) {
         LdapUtils.storeDiff(mods, "dcmIIOFormatName",
                 prevParam.formatName, param.formatName);
+        LdapUtils.storeDiff(mods, "dcmIIOName",
+            prevParam.name, param.name);        
         LdapUtils.storeDiff(mods, "dcmJavaClassName",
                 prevParam.className, param.className);
         LdapUtils.storeDiff(mods, "dcmPatchJPEGLS",

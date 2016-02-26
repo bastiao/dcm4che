@@ -43,6 +43,8 @@ package org.dcm4che3.imageio.codec;
 import org.dcm4che3.data.*;
 import org.dcm4che3.image.Overlays;
 import org.dcm4che3.image.PhotometricInterpretation;
+import org.dcm4che3.imageio.codec.ImageReaderFactory.ImageReaderItem;
+import org.dcm4che3.imageio.codec.ImageWriterFactory.ImageWriterItem;
 import org.dcm4che3.imageio.codec.jpeg.PatchJPEGLSImageInputStream;
 import org.dcm4che3.imageio.codec.jpeg.PatchJPEGLSImageOutputStream;
 import org.dcm4che3.imageio.stream.EncapsulatedPixelDataImageInputStream;
@@ -110,13 +112,13 @@ public class Transcoder implements Closeable {
 
     private EncapsulatedPixelDataImageInputStream encapsulatedPixelData;
 
-    private ImageReaderFactory.ImageReaderParam decompressorParam;
+    private ImageReaderItem decompressorParam;
 
     private ImageReader decompressor;
 
     private ImageReadParam decompressParam;
 
-    private ImageWriterFactory.ImageWriterParam compressorParam;
+    private ImageWriterItem compressorParam;
 
     private ImageWriter compressor;
 
@@ -225,12 +227,12 @@ public class Transcoder implements Closeable {
     }
 
     private void initDecompressor() {
-        decompressorParam = ImageReaderFactory.getImageReaderParam(srcTransferSyntax);
+        decompressorParam = ImageReaderFactory.getImageReader(srcTransferSyntax);
         if (decompressorParam == null)
             throw new UnsupportedOperationException(
                     "Unsupported Transfer Syntax: " + srcTransferSyntax);
 
-        this.decompressor = ImageReaderFactory.getImageReader(decompressorParam);
+        this.decompressor = decompressorParam.getImageReader();
         this.decompressParam = decompressor.getDefaultReadParam();
     }
 
@@ -240,7 +242,7 @@ public class Transcoder implements Closeable {
             throw new UnsupportedOperationException(
                     "Unsupported Transfer Syntax: " + tsuid);
 
-        this.compressor = ImageWriterFactory.getImageWriter(compressorParam);
+        this.compressor = compressorParam.getImageWriter();
         LOG.debug("Compressor: {}", compressor.getClass().getName());
 
         this.compressParam = compressor.getDefaultWriteParam();
@@ -248,7 +250,7 @@ public class Transcoder implements Closeable {
 
     public void setCompressParams(Property[] imageWriteParams) {
         int count = 0;
-        for (Property property : cat(compressorParam.getImageWriteParams(), imageWriteParams)) {
+        for (Property property : cat(compressorParam.getImageWriterParam().getImageWriteParams(), imageWriteParams)) {
             String name = property.getName();
             if (name.equals("maxPixelValueError"))
                 this.maxPixelValueError = ((Number) property.getValue()).intValue();
@@ -261,13 +263,12 @@ public class Transcoder implements Closeable {
             }
         }
         if (maxPixelValueError >= 0) {
-            ImageReaderFactory.ImageReaderParam readerParam =
-                    ImageReaderFactory.getImageReaderParam(destTransferSyntax);
-            if (readerParam == null)
+            ImageReaderItem readerItem = ImageReaderFactory.getImageReader(destTransferSyntax);
+            if (readerItem == null)
                 throw new UnsupportedOperationException(
                         "Unsupported Transfer Syntax: " + destTransferSyntax);
 
-            this.verifier = ImageReaderFactory.getImageReader(readerParam);
+            this.verifier = readerItem.getImageReader();
             this.verifyParam = verifier.getDefaultReadParam();
             LOG.debug("Verifier: {}", verifier.getClass().getName());
         }
@@ -460,8 +461,8 @@ public class Transcoder implements Closeable {
     }
 
     private BufferedImage decompressFrame(int frameIndex) throws IOException {
-        decompressor.setInput(decompressorParam.patchJPEGLS != null
-                ? new PatchJPEGLSImageInputStream(encapsulatedPixelData, decompressorParam.patchJPEGLS)
+        decompressor.setInput(decompressorParam.getImageReaderParam().patchJPEGLS != null
+                ? new PatchJPEGLSImageInputStream(encapsulatedPixelData, decompressorParam.getImageReaderParam().patchJPEGLS)
                 : encapsulatedPixelData);
         if (srcTransferSyntaxType == TransferSyntaxType.RLE)
             initBufferedImage();
@@ -478,8 +479,8 @@ public class Transcoder implements Closeable {
 
     private void compressFrame(int frameIndex) throws IOException {
         ExtMemoryCacheImageOutputStream ios = new ExtMemoryCacheImageOutputStream();
-        compressor.setOutput(compressorParam.patchJPEGLS != null
-                ? new PatchJPEGLSImageOutputStream(ios, compressorParam.patchJPEGLS)
+        compressor.setOutput(compressorParam.getImageWriterParam().patchJPEGLS != null
+                ? new PatchJPEGLSImageOutputStream(ios, compressorParam.getImageWriterParam().patchJPEGLS)
                 : ios);
         long start = System.currentTimeMillis();
         compressor.write(null, new IIOImage(bi, null, null), compressParam);

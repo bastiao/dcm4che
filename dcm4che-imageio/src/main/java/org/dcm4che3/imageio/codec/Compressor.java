@@ -67,6 +67,8 @@ import org.dcm4che3.data.Fragments;
 import org.dcm4che3.data.VR;
 import org.dcm4che3.data.Value;
 import org.dcm4che3.image.Overlays;
+import org.dcm4che3.imageio.codec.ImageReaderFactory.ImageReaderItem;
+import org.dcm4che3.imageio.codec.ImageWriterFactory.ImageWriterItem;
 import org.dcm4che3.imageio.codec.jpeg.PatchJPEGLS;
 import org.dcm4che3.imageio.codec.jpeg.PatchJPEGLSImageOutputStream;
 import org.dcm4che3.io.DicomEncodingOptions;
@@ -128,19 +130,19 @@ public class Compressor extends Decompressor implements Closeable {
         if (frames == 0)
             return false;
 
-        ImageWriterFactory.ImageWriterParam param =
+        ImageWriterItem writerItem =
                 ImageWriterFactory.getImageWriterParam(tsuid);
-        if (param == null)
+        if (writerItem == null)
             throw new UnsupportedOperationException(
                     "Unsupported Transfer Syntax: " + tsuid);
 
-        this.compressor = ImageWriterFactory.getImageWriter(param);
+        this.compressor = writerItem.getImageWriter();
         LOG.debug("Compressor: {}", compressor.getClass().getName());
-        this.patchJPEGLS = param.patchJPEGLS;
+        this.patchJPEGLS = writerItem.getImageWriterParam().patchJPEGLS;
 
         this.compressParam = compressor.getDefaultWriteParam();
         int count = 0;
-        for (Property property : cat(param.getImageWriteParams(), params)) {
+        for (Property property : cat(writerItem.getImageWriterParam().getImageWriteParams(), params)) {
             String name = property.getName();
             if (name.equals("maxPixelValueError"))
                 this.maxPixelValueError = ((Number) property.getValue()).intValue();
@@ -155,13 +157,11 @@ public class Compressor extends Decompressor implements Closeable {
         }
 
         if (maxPixelValueError >= 0) {
-            ImageReaderFactory.ImageReaderParam readerParam =
-                    ImageReaderFactory.getImageReaderParam(tsuid);
-            if (readerParam == null)
+            ImageReaderItem readerItem = ImageReaderFactory.getImageReader(tsuid);
+            if (readerItem == null)
                 throw new UnsupportedOperationException(
                         "Unsupported Transfer Syntax: " + tsuid);
-
-            this.verifier = ImageReaderFactory.getImageReader(readerParam);
+            this.verifier = readerItem.getImageReader();
             this.verifyParam = verifier.getDefaultReadParam();
             LOG.debug("Verifier: {}", verifier.getClass().getName());
         }

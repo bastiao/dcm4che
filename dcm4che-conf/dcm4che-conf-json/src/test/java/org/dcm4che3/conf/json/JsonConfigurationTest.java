@@ -40,6 +40,32 @@
 
 package org.dcm4che3.conf.json;
 
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.StringWriter;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import javax.json.Json;
+import javax.json.stream.JsonGenerator;
+
 import org.dcm4che3.audit.AuditMessages;
 import org.dcm4che3.audit.EventID;
 import org.dcm4che3.audit.EventTypeCode;
@@ -54,8 +80,15 @@ import org.dcm4che3.conf.json.imageio.JsonImageWriterConfiguration;
 import org.dcm4che3.data.Code;
 import org.dcm4che3.data.UID;
 import org.dcm4che3.imageio.codec.ImageReaderFactory;
+import org.dcm4che3.imageio.codec.ImageReaderFactory.ImageReaderParam;
 import org.dcm4che3.imageio.codec.ImageWriterFactory;
-import org.dcm4che3.net.*;
+import org.dcm4che3.imageio.codec.ImageWriterFactory.ImageWriterParam;
+import org.dcm4che3.net.ApplicationEntity;
+import org.dcm4che3.net.Connection;
+import org.dcm4che3.net.Device;
+import org.dcm4che3.net.QueryOption;
+import org.dcm4che3.net.StorageOptions;
+import org.dcm4che3.net.TransferCapability;
 import org.dcm4che3.net.audit.AuditLogger;
 import org.dcm4che3.net.audit.AuditRecordRepository;
 import org.dcm4che3.net.audit.AuditSuppressCriteria;
@@ -65,20 +98,6 @@ import org.dcm4che3.net.imageio.ImageReaderExtension;
 import org.dcm4che3.net.imageio.ImageWriterExtension;
 import org.junit.Test;
 
-import javax.json.Json;
-import javax.json.stream.JsonGenerator;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.IOException;
-import java.io.StringWriter;
-import java.nio.charset.Charset;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.*;
-
-import static org.junit.Assert.*;
-
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
  * @since Nov 2015
@@ -86,67 +105,37 @@ import static org.junit.Assert.*;
 public class JsonConfigurationTest {
 
     static final String HL7_DEFAULT_CHARACTER_SET = "8859/1";
-    static final String[] HL7_MESSAGE_TYPES = {
-            "ADT^A02",
-            "ADT^A03",
-            "ADT^A06",
-            "ADT^A07",
-            "ADT^A08",
-            "ADT^A40",
-            "ORM^O01"
-    };
+    static final String[] HL7_MESSAGE_TYPES =
+        { "ADT^A02", "ADT^A03", "ADT^A06", "ADT^A07", "ADT^A08", "ADT^A40", "ORM^O01" };
 
-    static final String[] HL7_ACCEPTED_SENDING_APPLICATIONS = {
-            "DCM4CHEE^J4CARE",
-            "MAS1TLN^TALLINN"
-    };
+    static final String[] HL7_ACCEPTED_SENDING_APPLICATIONS = { "DCM4CHEE^J4CARE", "MAS1TLN^TALLINN" };
 
-    static final EventID[] AUDIT_LOGGER_EVENT_IDS = {
-            AuditMessages.EventID.HealthServicesProvisionEvent,
-            AuditMessages.EventID.MedicationEvent,
-    };
+    static final EventID[] AUDIT_LOGGER_EVENT_IDS =
+        { AuditMessages.EventID.HealthServicesProvisionEvent, AuditMessages.EventID.MedicationEvent, };
 
-    static final EventTypeCode[] AUDIT_LOGGER_EVENT_TYPE_CODES = {
-            AuditMessages.EventTypeCode.ApplicationStart,
-            AuditMessages.EventTypeCode.ApplicationStop
-    };
+    static final EventTypeCode[] AUDIT_LOGGER_EVENT_TYPE_CODES =
+        { AuditMessages.EventTypeCode.ApplicationStart, AuditMessages.EventTypeCode.ApplicationStop };
 
-    static final String[] AUDIT_LOGGER_EVENT_ACTION_CODES = {
-            AuditMessages.EventActionCode.Create,
-            AuditMessages.EventActionCode.Delete
-    };
+    static final String[] AUDIT_LOGGER_EVENT_ACTION_CODES =
+        { AuditMessages.EventActionCode.Create, AuditMessages.EventActionCode.Delete };
 
-    static final String[] AUDIT_LOGGER_EVENT_OUTCOME_INDICATORS = {
-            AuditMessages.EventOutcomeIndicator.MajorFailure,
-            AuditMessages.EventOutcomeIndicator.MinorFailure
-    };
+    static final String[] AUDIT_LOGGER_EVENT_OUTCOME_INDICATORS =
+        { AuditMessages.EventOutcomeIndicator.MajorFailure, AuditMessages.EventOutcomeIndicator.MinorFailure };
 
-    static final String[] AUDIT_LOGGER_USER_IDS = {
-            "4",
-            "2",
-            "0"
-    };
+    static final String[] AUDIT_LOGGER_USER_IDS = { "4", "2", "0" };
 
-    static final String[] AUDIT_LOGGER_ALTERNATIVE_USER_IDS = {
-            "XYZ",
-            "XYZ",
-            "XYZ"
-    };
+    static final String[] AUDIT_LOGGER_ALTERNATIVE_USER_IDS = { "XYZ", "XYZ", "XYZ" };
 
-    static final RoleIDCode[] AUDIT_LOGGER_ROLE_ID_CODES = {
-            AuditMessages.RoleIDCode.Application,
-            AuditMessages.RoleIDCode.ApplicationLauncher
-    };
+    static final RoleIDCode[] AUDIT_LOGGER_ROLE_ID_CODES =
+        { AuditMessages.RoleIDCode.Application, AuditMessages.RoleIDCode.ApplicationLauncher };
 
-    static final String[] AUDIT_LOGGER_NETWORK_ACCESS_POINT_IDS = {
-            AuditMessages.NetworkAccessPointTypeCode.EmailAddress,
-            AuditMessages.NetworkAccessPointTypeCode.IPAddress
-    };
+    static final String[] AUDIT_LOGGER_NETWORK_ACCESS_POINT_IDS =
+        { AuditMessages.NetworkAccessPointTypeCode.EmailAddress, AuditMessages.NetworkAccessPointTypeCode.IPAddress };
 
     @Test
     public void testWriteTo() throws Exception {
         StringWriter writer = new StringWriter();
-        try ( JsonGenerator gen = Json.createGenerator(writer)) {
+        try (JsonGenerator gen = Json.createGenerator(writer)) {
             JsonConfiguration config = new JsonConfiguration();
             config.addJsonConfigurationExtension(new JsonAuditLoggerConfiguration());
             config.addJsonConfigurationExtension(new JsonAuditRecordRepositoryConfiguration());
@@ -156,9 +145,9 @@ public class JsonConfigurationTest {
             config.writeTo(createDevice("Test-Device-1", "TEST-AET1"), gen);
         }
         Path path = Paths.get("src/test/data/device.json");
-//        try (BufferedWriter w = Files.newBufferedWriter(path, Charset.forName("UTF-8"))) {
-//            w.write(writer.toString());
-//        }
+        // try (BufferedWriter w = Files.newBufferedWriter(path, Charset.forName("UTF-8"))) {
+        // w.write(writer.toString());
+        // }
         try (BufferedReader reader = Files.newBufferedReader(path, Charset.forName("UTF-8"))) {
             assertEquals(reader.readLine(), writer.toString());
         }
@@ -199,8 +188,9 @@ public class JsonConfigurationTest {
     private static final ConfigurationDelegate configDelegate = new ConfigurationDelegate() {
         @Override
         public Device findDevice(String name) throws ConfigurationException {
-            if (!name.equals("TestAuditRecordRepository"))
+            if (!name.equals("TestAuditRecordRepository")) {
                 throw new ConfigurationNotFoundException("Unknown Device: " + name);
+            }
             try {
                 return loadARR();
             } catch (IOException e) {
@@ -241,7 +231,7 @@ public class JsonConfigurationTest {
         assertEquals(3, ae.getTransferCapabilities().size());
         TransferCapability echoSCP = ae.getTransferCapabilityFor(UID.VerificationSOPClass, TransferCapability.Role.SCP);
         assertNotNull(echoSCP);
-        assertArrayEquals(new String[]{ UID.ImplicitVRLittleEndian }, echoSCP.getTransferSyntaxes());
+        assertArrayEquals(new String[] { UID.ImplicitVRLittleEndian }, echoSCP.getTransferSyntaxes());
         assertNull(echoSCP.getCommonName());
         assertNull(echoSCP.getQueryOptions());
         assertNull(echoSCP.getStorageOptions());
@@ -252,8 +242,8 @@ public class JsonConfigurationTest {
         assertEquals(StorageOptions.LevelOfSupport.LEVEL_2, storageOptions.getLevelOfSupport());
         assertEquals(StorageOptions.DigitalSignatureSupport.LEVEL_1, storageOptions.getDigitalSignatureSupport());
         assertEquals(StorageOptions.ElementCoercion.YES, storageOptions.getElementCoercion());
-        TransferCapability findSCP = ae.getTransferCapabilityFor(
-                UID.StudyRootQueryRetrieveInformationModelFIND, TransferCapability.Role.SCP);
+        TransferCapability findSCP =
+            ae.getTransferCapabilityFor(UID.StudyRootQueryRetrieveInformationModelFIND, TransferCapability.Role.SCP);
         assertNotNull(findSCP);
         assertEquals(EnumSet.of(QueryOption.RELATIONAL), findSCP.getQueryOptions());
         assertImageReaderExtension(device.getDeviceExtension(ImageReaderExtension.class));
@@ -289,12 +279,14 @@ public class JsonConfigurationTest {
         for (AuditSuppressCriteria asc : auditSuppressCriteriaList) {
             assertEquals("cn", asc.getCommonName());
             assertArrayEquals(eventIDsToStringArray(AUDIT_LOGGER_EVENT_IDS), asc.getEventIDsAsStringArray());
-            assertArrayEquals(eventCodesToStringArray(AUDIT_LOGGER_EVENT_TYPE_CODES), asc.getEventTypeCodesAsStringArray());
+            assertArrayEquals(eventCodesToStringArray(AUDIT_LOGGER_EVENT_TYPE_CODES),
+                asc.getEventTypeCodesAsStringArray());
             assertArrayEquals(AUDIT_LOGGER_EVENT_ACTION_CODES, asc.getEventActionCodes());
             assertArrayEquals(AUDIT_LOGGER_EVENT_OUTCOME_INDICATORS, asc.getEventOutcomeIndicators());
             assertArrayEquals(AUDIT_LOGGER_USER_IDS, asc.getUserIDs());
             assertArrayEquals(AUDIT_LOGGER_ALTERNATIVE_USER_IDS, asc.getAlternativeUserIDs());
-            assertArrayEquals(roleIDCodesToStringArray(AUDIT_LOGGER_ROLE_ID_CODES), asc.getUserRoleIDCodesAsStringArray());
+            assertArrayEquals(roleIDCodesToStringArray(AUDIT_LOGGER_ROLE_ID_CODES),
+                asc.getUserRoleIDCodesAsStringArray());
             assertArrayEquals(AUDIT_LOGGER_NETWORK_ACCESS_POINT_IDS, asc.getNetworkAccessPointIDs());
             assertEquals(true, asc.getUserIsRequestor());
         }
@@ -303,12 +295,7 @@ public class JsonConfigurationTest {
     private static String[] eventIDsToStringArray(EventID... a) {
         String[] ss = new String[a.length];
         for (int i = 0; i < a.length; i++) {
-            ss[i] = new Code(
-                    a[i].getCsdCode(),
-                    a[i].getCodeSystemName(),
-                    null,
-                    a[i].getOriginalText())
-                    .toString();
+            ss[i] = new Code(a[i].getCsdCode(), a[i].getCodeSystemName(), null, a[i].getOriginalText()).toString();
         }
         return ss;
     }
@@ -316,12 +303,7 @@ public class JsonConfigurationTest {
     private static String[] eventCodesToStringArray(EventTypeCode... a) {
         String[] ss = new String[a.length];
         for (int i = 0; i < a.length; i++) {
-            ss[i] = new Code(
-                    a[i].getCsdCode(),
-                    a[i].getCodeSystemName(),
-                    null,
-                    a[i].getOriginalText())
-                    .toString();
+            ss[i] = new Code(a[i].getCsdCode(), a[i].getCodeSystemName(), null, a[i].getOriginalText()).toString();
         }
         return ss;
     }
@@ -329,12 +311,7 @@ public class JsonConfigurationTest {
     private static String[] roleIDCodesToStringArray(RoleIDCode... a) {
         String[] ss = new String[a.length];
         for (int i = 0; i < a.length; i++) {
-            ss[i] = new Code(
-                    a[i].getCsdCode(),
-                    a[i].getCodeSystemName(),
-                    null,
-                    a[i].getOriginalText())
-                    .toString();
+            ss[i] = new Code(a[i].getCsdCode(), a[i].getCodeSystemName(), null, a[i].getOriginalText()).toString();
         }
         return ss;
     }
@@ -343,11 +320,10 @@ public class JsonConfigurationTest {
         assertNotNull(ext);
         ImageWriterFactory factory = ext.getImageWriterFactory();
         assertNotNull(factory);
-        Set<Map.Entry<String, ImageWriterFactory.ImageWriterParam>> expectedEntries =
-                ImageWriterFactory.getDefault().getEntries();
+        Set<Entry<String, List<ImageWriterParam>>> expectedEntries = ImageWriterFactory.getDefault().getEntries();
         assertEquals(expectedEntries.size(), factory.getEntries().size());
-        for (Map.Entry<String, ImageWriterFactory.ImageWriterParam> expected : expectedEntries) {
-            assertEquals(expected.getValue(), factory.get(expected.getKey()));
+        for (Entry<String, List<ImageWriterParam>> expected : expectedEntries) {
+            assertEquals(ImageWriterFactory.getImageWriterParam(expected.getValue()), factory.get(expected.getKey()));
         }
     }
 
@@ -355,11 +331,10 @@ public class JsonConfigurationTest {
         assertNotNull(ext);
         ImageReaderFactory factory = ext.getImageReaderFactory();
         assertNotNull(factory);
-        Set<Map.Entry<String, ImageReaderFactory.ImageReaderParam>> expectedEntries =
-                ImageReaderFactory.getDefault().getEntries();
+        Set<Entry<String, List<ImageReaderParam>>> expectedEntries = ImageReaderFactory.getDefault().getEntries();
         assertEquals(expectedEntries.size(), factory.getEntries().size());
-        for (Map.Entry<String, ImageReaderFactory.ImageReaderParam> expected : expectedEntries) {
-            assertEquals(expected.getValue(), factory.get(expected.getKey()));
+        for (Entry<String, List<ImageReaderParam>> expected : expectedEntries) {
+            assertEquals(ImageReaderFactory.getImageReaderParam(expected.getValue()), factory.get(expected.getKey()));
         }
     }
 
@@ -373,7 +348,7 @@ public class JsonConfigurationTest {
         device.addDeviceExtension(new ImageWriterExtension(ImageWriterFactory.getDefault()));
         addAuditLogger(device, createARRDevice("TestAuditRecordRepository"));
         addHL7DeviceExtension(device);
-        return device ;
+        return device;
     }
 
     private static Connection createConn(String hostname, int port) {
@@ -385,28 +360,25 @@ public class JsonConfigurationTest {
 
     private static TransferCapability echoSCP() {
         return new TransferCapability(null, UID.VerificationSOPClass, TransferCapability.Role.SCP,
-                UID.ImplicitVRLittleEndian);
+            UID.ImplicitVRLittleEndian);
     }
 
     private static final TransferCapability ctSCP() {
         TransferCapability tc = new TransferCapability(null, UID.CTImageStorage, TransferCapability.Role.SCP,
-                UID.ImplicitVRLittleEndian, UID.ExplicitVRLittleEndian);
+            UID.ImplicitVRLittleEndian, UID.ExplicitVRLittleEndian);
         tc.setStorageOptions(STORAGE_OPTIONS);
         return tc;
     }
 
     private static final TransferCapability findSCP() {
-        TransferCapability tc = new TransferCapability(null,
-                UID.StudyRootQueryRetrieveInformationModelFIND, TransferCapability.Role.SCP,
-                UID.ImplicitVRLittleEndian);
+        TransferCapability tc = new TransferCapability(null, UID.StudyRootQueryRetrieveInformationModelFIND,
+            TransferCapability.Role.SCP, UID.ImplicitVRLittleEndian);
         tc.setQueryOptions(EnumSet.of(QueryOption.RELATIONAL));
         return tc;
     }
 
-    private static final StorageOptions STORAGE_OPTIONS = new StorageOptions(
-            StorageOptions.LevelOfSupport.LEVEL_2,
-            StorageOptions.DigitalSignatureSupport.LEVEL_1,
-            StorageOptions.ElementCoercion.YES);
+    private static final StorageOptions STORAGE_OPTIONS = new StorageOptions(StorageOptions.LevelOfSupport.LEVEL_2,
+        StorageOptions.DigitalSignatureSupport.LEVEL_1, StorageOptions.ElementCoercion.YES);
 
     private static ApplicationEntity createAE(String aet, Connection conn) {
         ApplicationEntity ae = new ApplicationEntity(aet);
@@ -428,7 +400,7 @@ public class JsonConfigurationTest {
         device.addConnection(udp);
         device.addConnection(tls);
         addAuditRecordRepository(device, udp, tls);
-        return device ;
+        return device;
     }
 
     private static void addAuditRecordRepository(Device device, Connection udp, Connection tls) {

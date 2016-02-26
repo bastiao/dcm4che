@@ -38,9 +38,12 @@
 package org.dcm4che3.conf.ldap.imageio;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
 
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
 import javax.naming.NameNotFoundException;
 import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
@@ -79,12 +82,13 @@ public class LdapImageReaderConfiguration extends LdapDicomConfigurationExtensio
 
     private void store(String deviceDN, ImageReaderFactory factory) throws NamingException {
         String imageReadersDN = CN_IMAGE_READER_FACTORY + deviceDN;
-        config.createSubcontext(imageReadersDN,
-                LdapUtils.attrs("dcmImageReaderFactory", "cn", "Image Reader Factory"));
-        for (Entry<String, ImageReaderParam> entry : factory.getEntries()) {
+        config.createSubcontext(imageReadersDN, LdapUtils.attrs("dcmImageReaderFactory", "cn", "Image Reader Factory"));
+        for (Entry<String, List<ImageReaderParam>> entry : factory.getEntries()) {
             String tsuid = entry.getKey();
-            config.createSubcontext(dnOf(tsuid, imageReadersDN),
-                    storeTo(tsuid, entry.getValue(), new BasicAttributes(true)));
+            ImageReaderParam param = ImageReaderFactory.getImageReaderParam(entry.getValue());
+            if (param != null) {
+                config.createSubcontext(dnOf(tsuid, imageReadersDN), storeTo(tsuid, param, new BasicAttributes(true)));
+            }
         }
     }
 
@@ -92,6 +96,7 @@ public class LdapImageReaderConfiguration extends LdapDicomConfigurationExtensio
         attrs.put("objectclass", "dcmImageReader");
         attrs.put("dicomTransferSyntax", tsuid);
         attrs.put("dcmIIOFormatName", param.formatName);
+        attrs.put("dcmIIOName", param.name);
         LdapUtils.storeNotNull(attrs, "dcmJavaClassName", param.className);
         LdapUtils.storeNotNull(attrs, "dcmPatchJPEGLS", param.patchJPEGLS);
         return attrs;
@@ -114,18 +119,14 @@ public class LdapImageReaderConfiguration extends LdapDicomConfigurationExtensio
             while (ne.hasMore()) {
                 SearchResult sr = ne.next();
                 Attributes attrs = sr.getAttributes();
-                factory.put(
-                        LdapUtils.stringValue(attrs.get("dicomTransferSyntax"), null),
-                        new ImageReaderParam(
-                                LdapUtils.stringValue(
-                                        attrs.get("dcmIIOFormatName"), null),
-                                LdapUtils.stringValue(
-                                        attrs.get("dcmJavaClassName"), null),
-                                LdapUtils.stringValue(
-                                        attrs.get("dcmPatchJPEGLS"), null)));
+                factory.put(LdapUtils.stringValue(attrs.get("dicomTransferSyntax"), null),
+                    new ImageReaderParam(LdapUtils.stringValue(attrs.get("dcmIIOFormatName"), null),
+                        LdapUtils.stringValue(attrs.get("dcmJavaClassName"), null),
+                        LdapUtils.stringValue(attrs.get("dcmPatchJPEGLS"), null),
+                        LdapUtils.stringValue(attrs.get("dcmIIOName"), "Unknown")));
             }
         } finally {
-           LdapUtils.safeClose(ne);
+            LdapUtils.safeClose(ne);
         }
         device.addDeviceExtension(new ImageReaderExtension(factory));
     }
@@ -149,33 +150,33 @@ public class LdapImageReaderConfiguration extends LdapDicomConfigurationExtensio
         String imageReadersDN = CN_IMAGE_READER_FACTORY + deviceDN;
         ImageReaderFactory factory = ext.getImageReaderFactory();
         ImageReaderFactory prevFactory = prevExt.getImageReaderFactory();
-        for (Entry<String, ImageReaderParam> entry : prevFactory.getEntries()) {
+        for (Entry<String, List<ImageReaderParam>> entry : prevFactory.getEntries()) {
             String tsuid = entry.getKey();
-            if (factory.get(tsuid) == null)
+            ImageReaderParam param = ImageReaderFactory.getImageReaderParam(entry.getValue());
+            if (param == null) {
                 config.destroySubcontext(dnOf(tsuid, imageReadersDN));
+            }
         }
-        for (Entry<String, ImageReaderParam> entry : factory.getEntries()) {
+        for (Entry<String, List<ImageReaderParam>> entry : factory.getEntries()) {
             String tsuid = entry.getKey();
             String dn = dnOf(tsuid, imageReadersDN);
-            ImageReaderParam prevParam = prevFactory.get(tsuid);
-            if (prevParam == null)
-                config.createSubcontext(dn,
-                        storeTo(tsuid, entry.getValue(), new BasicAttributes(true)));
-            else
-                config.modifyAttributes(dn,
-                        storeDiffs(prevParam, entry.getValue(), new ArrayList<ModificationItem>()));
+            ImageReaderParam param = ImageReaderFactory.getImageReaderParam(entry.getValue());
+            ImageReaderParam prevParam = ImageReaderFactory.getImageReaderParam(prevFactory.get(tsuid));
+            if (prevParam == null) {
+                config.createSubcontext(dn, storeTo(tsuid, param, new BasicAttributes(true)));
+            } else {
+                config.modifyAttributes(dn, storeDiffs(prevParam, param, new ArrayList<ModificationItem>()));
+            }
         }
     }
 
-    private List<ModificationItem> storeDiffs(ImageReaderParam prevParam,
-            ImageReaderParam param, List<ModificationItem> mods) {
-        LdapUtils.storeDiff(mods, "dcmIIOFormatName",
-                prevParam.formatName, param.formatName);
-        LdapUtils.storeDiff(mods, "dcmJavaClassName",
-                prevParam.className, param.className);
-        LdapUtils.storeDiff(mods, "dcmPatchJPEGLS",
-                prevParam.patchJPEGLS, param.patchJPEGLS);
-       return mods;
+    private List<ModificationItem> storeDiffs(ImageReaderParam prevParam, ImageReaderParam param,
+        List<ModificationItem> mods) {
+        LdapUtils.storeDiff(mods, "dcmIIOFormatName", prevParam.formatName, param.formatName);
+        LdapUtils.storeDiff(mods, "dcmIIOName", prevParam.name, param.name);
+        LdapUtils.storeDiff(mods, "dcmJavaClassName", prevParam.className, param.className);
+        LdapUtils.storeDiff(mods, "dcmPatchJPEGLS", prevParam.patchJPEGLS, param.patchJPEGLS);
+        return mods;
     }
 
 }

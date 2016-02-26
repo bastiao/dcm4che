@@ -70,6 +70,7 @@ import org.dcm4che3.data.Fragments;
 import org.dcm4che3.data.VR;
 import org.dcm4che3.data.Value;
 import org.dcm4che3.image.PhotometricInterpretation;
+import org.dcm4che3.imageio.codec.ImageReaderFactory.ImageReaderItem;
 import org.dcm4che3.imageio.codec.jpeg.PatchJPEGLS;
 import org.dcm4che3.imageio.codec.jpeg.PatchJPEGLSImageInputStream;
 import org.dcm4che3.imageio.stream.SegmentedInputImageStream;
@@ -147,16 +148,15 @@ public class Decompressor {
                         + numFragments + " does not match " + frames);
 
             this.file = ((BulkData) pixeldataFragments.get(1)).getFile();
-            ImageReaderFactory.ImageReaderParam param =
-                    ImageReaderFactory.getImageReaderParam(tsuid);
-            if (param == null)
+            ImageReaderItem readerItem = ImageReaderFactory.getImageReader(tsuid);
+            if (readerItem == null)
                 throw new UnsupportedOperationException(
                         "Unsupported Transfer Syntax: " + tsuid);
 
-            this.decompressor = ImageReaderFactory.getImageReader(param);
+            this.decompressor = readerItem.getImageReader();
             LOG.debug("Decompressor: {}", decompressor.getClass().getName());
             this.readParam = decompressor.getDefaultReadParam();
-            this.patchJpegLS = param.patchJPEGLS;
+            this.patchJpegLS = readerItem.getImageReaderParam().patchJPEGLS;
         } else {
             this.file = ((BulkData) pixeldata).getFile();
         }

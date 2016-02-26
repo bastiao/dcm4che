@@ -40,16 +40,19 @@
 
 package org.dcm4che3.conf.json.imageio;
 
+import java.util.List;
+import java.util.Map.Entry;
+
+import javax.json.stream.JsonParser;
+
 import org.dcm4che3.conf.json.ConfigurationDelegate;
 import org.dcm4che3.conf.json.JsonConfigurationExtension;
 import org.dcm4che3.conf.json.JsonReader;
 import org.dcm4che3.conf.json.JsonWriter;
 import org.dcm4che3.imageio.codec.ImageReaderFactory;
+import org.dcm4che3.imageio.codec.ImageReaderFactory.ImageReaderParam;
 import org.dcm4che3.net.Device;
 import org.dcm4che3.net.imageio.ImageReaderExtension;
-
-import javax.json.stream.JsonParser;
-import java.util.Map;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -58,17 +61,18 @@ import java.util.Map;
 public class JsonImageReaderConfiguration extends JsonConfigurationExtension {
     @Override
     protected void storeTo(Device device, JsonWriter writer) {
-        ImageReaderExtension ext =  device.getDeviceExtension(ImageReaderExtension.class);
+        ImageReaderExtension ext = device.getDeviceExtension(ImageReaderExtension.class);
         if (ext == null)
             return;
 
         writer.writeStartArray("dcmImageReader");
-        for (Map.Entry<String, ImageReaderFactory.ImageReaderParam> entry : ext.getImageReaderFactory().getEntries()) {
+        for (Entry<String, List<ImageReaderParam>> entry : ext.getImageReaderFactory().getEntries()) {
             writer.writeStartObject();
             String tsuid = entry.getKey();
-            ImageReaderFactory.ImageReaderParam param = entry.getValue();
+            ImageReaderParam param = ImageReaderFactory.getImageReaderParam(entry.getValue());
             writer.writeNotNull("dicomTransferSyntax", tsuid);
             writer.writeNotNull("dcmIIOFormatName", param.formatName);
+            writer.writeNotNull("dcmIIOName", param.name);
             writer.writeNotNull("dcmJavaClassName", param.className);
             writer.writeNotNull("dcmPatchJPEGLS", param.patchJPEGLS);
             writer.writeEnd();
@@ -88,6 +92,7 @@ public class JsonImageReaderConfiguration extends JsonConfigurationExtension {
         while (reader.next() == JsonParser.Event.START_OBJECT) {
             String tsuid = null;
             String formatName = null;
+            String name = null;
             String className = null;
             String patchJPEGLS = null;
             while (reader.next() == JsonParser.Event.KEY_NAME) {
@@ -97,6 +102,9 @@ public class JsonImageReaderConfiguration extends JsonConfigurationExtension {
                         break;
                     case "dcmIIOFormatName":
                         formatName = reader.stringValue();
+                        break;
+                    case "dcmIIOName":
+                        name = reader.stringValue();
                         break;
                     case "dcmJavaClassName":
                         className = reader.stringValue();
@@ -109,7 +117,7 @@ public class JsonImageReaderConfiguration extends JsonConfigurationExtension {
                 }
             }
             reader.expect(JsonParser.Event.END_OBJECT);
-            factory.put(tsuid, new ImageReaderFactory.ImageReaderParam(formatName, className, patchJPEGLS));
+            factory.put(tsuid, new ImageReaderFactory.ImageReaderParam(formatName, className, patchJPEGLS, name));
         }
         device.addDeviceExtension(new ImageReaderExtension(factory));
         return true;

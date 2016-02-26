@@ -40,16 +40,19 @@
 
 package org.dcm4che3.conf.json.imageio;
 
-import org.dcm4che3.conf.json.ConfigurationDelegate;
-import org.dcm4che3.conf.json.JsonConfigurationExtension;
-import org.dcm4che3.conf.json.JsonWriter;
-import org.dcm4che3.conf.json.JsonReader;
-import org.dcm4che3.imageio.codec.ImageWriterFactory;
-import org.dcm4che3.net.Device;
-import org.dcm4che3.net.imageio.ImageWriterExtension;
+import java.util.List;
+import java.util.Map.Entry;
 
 import javax.json.stream.JsonParser;
-import java.util.Map;
+
+import org.dcm4che3.conf.json.ConfigurationDelegate;
+import org.dcm4che3.conf.json.JsonConfigurationExtension;
+import org.dcm4che3.conf.json.JsonReader;
+import org.dcm4che3.conf.json.JsonWriter;
+import org.dcm4che3.imageio.codec.ImageWriterFactory;
+import org.dcm4che3.imageio.codec.ImageWriterFactory.ImageWriterParam;
+import org.dcm4che3.net.Device;
+import org.dcm4che3.net.imageio.ImageWriterExtension;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -58,17 +61,18 @@ import java.util.Map;
 public class JsonImageWriterConfiguration extends JsonConfigurationExtension {
     @Override
     protected void storeTo(Device device, JsonWriter writer) {
-        ImageWriterExtension ext =  device.getDeviceExtension(ImageWriterExtension.class);
+        ImageWriterExtension ext = device.getDeviceExtension(ImageWriterExtension.class);
         if (ext == null)
             return;
 
         writer.writeStartArray("dcmImageWriter");
-        for (Map.Entry<String, ImageWriterFactory.ImageWriterParam> entry : ext.getImageWriterFactory().getEntries()) {
+        for (Entry<String, List<ImageWriterParam>> entry : ext.getImageWriterFactory().getEntries()) {
             writer.writeStartObject();
             String tsuid = entry.getKey();
-            ImageWriterFactory.ImageWriterParam param = entry.getValue();
+            ImageWriterParam param = ImageWriterFactory.getImageWriterParam(entry.getValue());
             writer.writeNotNull("dicomTransferSyntax", tsuid);
             writer.writeNotNull("dcmIIOFormatName", param.formatName);
+            writer.writeNotNull("dcmIIOName", param.name);
             writer.writeNotNull("dcmJavaClassName", param.className);
             writer.writeNotNull("dcmPatchJPEGLS", param.patchJPEGLS);
             writer.writeNotEmpty("dcmImageWriteParam", param.imageWriteParams);
@@ -90,6 +94,7 @@ public class JsonImageWriterConfiguration extends JsonConfigurationExtension {
         while (reader.next() == JsonParser.Event.START_OBJECT) {
             String tsuid = null;
             String formatName = null;
+            String name = null;
             String className = null;
             String patchJPEGLS = null;
             String[] imageWriteParam = new String[0];
@@ -100,6 +105,9 @@ public class JsonImageWriterConfiguration extends JsonConfigurationExtension {
                         break;
                     case "dcmIIOFormatName":
                         formatName = reader.stringValue();
+                        break;
+                    case "dcmIIOName":
+                        name = reader.stringValue();
                         break;
                     case "dcmJavaClassName":
                         className = reader.stringValue();
@@ -115,7 +123,8 @@ public class JsonImageWriterConfiguration extends JsonConfigurationExtension {
                 }
             }
             reader.expect(JsonParser.Event.END_OBJECT);
-            factory.put(tsuid, new ImageWriterFactory.ImageWriterParam(formatName, className, patchJPEGLS, imageWriteParam));
+            factory.put(tsuid,
+                new ImageWriterFactory.ImageWriterParam(formatName, className, patchJPEGLS, imageWriteParam, name));
         }
         device.addDeviceExtension(new ImageWriterExtension(factory));
         return true;

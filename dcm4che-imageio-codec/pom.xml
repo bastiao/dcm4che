@@ -4,7 +4,7 @@
 	<parent>
 		<groupId>org.dcm4che</groupId>
 		<artifactId>dcm4che-parent</artifactId>
-		<version>3.3.8-SNAPSHOT</version>
+		<version>dcm4chee-arc-light-5.1.0</version>
 	</parent>
 	<artifactId>dcm4che-imageio-codec</artifactId>
 	<name>dcm4che-imageio-codec</name>
