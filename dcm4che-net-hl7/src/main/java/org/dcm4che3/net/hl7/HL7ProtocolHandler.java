@@ -40,11 +40,9 @@ package org.dcm4che3.net.hl7;
 
 import java.io.IOException;
 import java.net.Socket;
-import java.text.ParsePosition;
 
 import org.dcm4che3.hl7.HL7Exception;
 import org.dcm4che3.hl7.HL7Message;
-import org.dcm4che3.hl7.HL7Segment;
 import org.dcm4che3.hl7.MLLPConnection;
 import org.dcm4che3.net.Connection;
 import org.dcm4che3.net.TCPProtocolHandler;
@@ -60,18 +58,15 @@ enum HL7ProtocolHandler implements TCPProtocolHandler {
     public void onAccept(Connection conn, Socket s) throws IOException {
         s.setSoTimeout(conn.getIdleTimeout());
         MLLPConnection mllp = new MLLPConnection(s);
-        byte[] msg;
-        while ((msg = mllp.readMessage()) != null) {
-            ParsePosition pos = new ParsePosition(0);
-            HL7Segment msh = HL7Segment.parseMSH(msg, msg.length, pos);
+        byte[] data;
+        while ((data = mllp.readMessage()) != null) {
+            UnparsedHL7Message msg = new UnparsedHL7Message(data);
             try {
-                msg = conn.getDevice().getDeviceExtension(HL7DeviceExtension.class)
-                        .onMessage(msh, msg, 0, msg.length, pos.getIndex(), conn, s);
+               data = conn.getDevice().getDeviceExtension(HL7DeviceExtension.class).onMessage(conn, s, msg);
             } catch (HL7Exception e) {
-                msg = HL7Message.makeACK(msh, e.getAcknowledgmentCode(), e.getErrorMessage())
-                        .getBytes(null);
+                data = HL7Message.makeACK(msg.msh(), e.getAcknowledgmentCode(), e.getErrorMessage()).getBytes(null);
             }
-            mllp.writeMessage(msg);
+            mllp.writeMessage(data);
         }
         conn.close(s);
     }

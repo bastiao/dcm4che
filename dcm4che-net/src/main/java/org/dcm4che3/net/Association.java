@@ -42,12 +42,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 
 import org.dcm4che3.data.Tag;
 import org.dcm4che3.data.UID;
@@ -75,6 +73,8 @@ public class Association {
 
     private static final AtomicInteger prevSerialNo = new AtomicInteger();
     private final AtomicInteger messageID = new AtomicInteger();
+    private final AtomicIntegerArray dimseCounters = new AtomicIntegerArray(46);
+    private final long connectTime;
     private final int serialNo;
     private final boolean requestor;
     private String name;
@@ -102,9 +102,11 @@ public class Association {
             new IntHashMap<CancelRQHandler>();
     private final HashMap<String,HashMap<String,PresentationContext>> pcMap =
             new HashMap<String,HashMap<String,PresentationContext>>();
+    private final LinkedList<AssociationListener> listeners = new LinkedList<>();
 
     Association(ApplicationEntity ae, Connection local, Socket sock)
             throws IOException {
+        this.connectTime = System.currentTimeMillis();
         this.serialNo = prevSerialNo.incrementAndGet();
         this.ae = ae;
         this.requestor = ae != null;
@@ -126,6 +128,14 @@ public class Association {
         activate();
     }
 
+    public long getConnectTimeInMillis() {
+        return connectTime;
+    }
+
+    public int getSerialNo() {
+        return serialNo;
+    }
+
     public Device getDevice() {
          return device;
     }
@@ -136,6 +146,22 @@ public class Association {
 
     private String delim() {
         return requestor ? "->" : "<-";
+    }
+
+    public int getNumberOfSent(Dimse dimse) {
+        return dimseCounters.get(dimse.ordinal());
+    }
+
+    public int getNumberOfReceived(Dimse dimse) {
+        return dimseCounters.get(23 + dimse.ordinal());
+    }
+
+    void incSentCount(Dimse dimse) {
+        dimseCounters.getAndIncrement(dimse.ordinal());
+    }
+
+    void incReceivedCount(Dimse dimse) {
+        dimseCounters.getAndIncrement(23 + dimse.ordinal());
     }
 
     @Override
@@ -167,6 +193,11 @@ public class Association {
         return ae;
     }
 
+
+    public Set<String> getPropertyNames() {
+        return properties != null ? properties.keySet() : Collections.<String>emptySet();
+    }
+
     public Object getProperty(String key) {
         return properties != null ? properties.get(key) : null;
     }
@@ -192,6 +223,14 @@ public class Association {
 
     public Object clearProperty(String key) {
         return properties != null ? properties.remove(key) : null;
+    }
+
+    public void addAssociationListener(AssociationListener listener) {
+        listeners.add(listener);
+    }
+
+    public void removeAssociationListener(AssociationListener listener) {
+        listeners.remove(listener);
     }
 
     public final boolean isRequestor() {
@@ -473,7 +512,7 @@ public class Association {
             @Override
             public void run() {
                 decoder = new PDUDecoder(Association.this, in);
-                device.incrementNumberOfOpenAssociations();
+                device.addAssociation(Association.this);
                 try {
                     while (!(state == State.Sta1 || state == State.Sta13))
                         decoder.nextPDU();
@@ -482,7 +521,7 @@ public class Association {
                 } catch (IOException e) {
                     onIOException(e);
                 } finally {
-                    device.decrementNumberOfOpenAssociations();
+                    device.removeAssociation(Association.this);
                     onClose();
                 }
             }
@@ -507,6 +546,8 @@ public class Association {
         }
         if (ae != null)
             ae.getDevice().getAssociationHandler().onClose(this);
+        for (AssociationListener listener : listeners)
+            listener.onClose(this);
     }
 
     void onAAssociateRQ(AAssociateRQ rq) throws IOException {
@@ -646,6 +687,7 @@ public class Association {
             PDVInputStream data) throws IOException {
         stopTimeout();
         incPerforming();
+        incReceivedCount(dimse);
         ae.onDimseRQ(this, pc, dimse, cmd, data);
     }
 
@@ -674,6 +716,7 @@ public class Association {
                     ? conn.getRetrieveTimeout()
                     : conn.getResponseTimeout());
         else {
+            incReceivedCount(dimse);
             removeDimseRSPHandler(msgId);
             if (rspHandlerForMsgId.isEmpty() && performing == 0)
                 startIdleOrReleaseTimeout();
@@ -756,6 +799,7 @@ public class Association {
     }
 
     void onCancelRQ(Attributes cmd) throws IOException {
+        incReceivedCount(Dimse.C_CANCEL_RQ);
         int msgId = cmd.getInt(Tag.MessageIDBeingRespondedTo, -1);
         CancelRQHandler handler = removeCancelRQHandler(msgId);
         if (handler != null)

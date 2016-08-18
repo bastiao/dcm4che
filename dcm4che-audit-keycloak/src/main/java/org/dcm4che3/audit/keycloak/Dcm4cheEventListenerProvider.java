@@ -70,7 +70,7 @@ public class Dcm4cheEventListenerProvider implements EventListenerProvider {
                 if (log != null)
                     AuditAuth.spoolAuditMsg(event, log);
             } catch (Exception e) {
-                LOG.warn("Failed to emit audit message", e);
+                LOG.warn("Failed to get audit logger", e);
             }
         }
     }
