@@ -54,6 +54,7 @@ import java.util.List;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Nov 2015
  */
 public class JsonConfiguration {
@@ -101,6 +102,20 @@ public class JsonConfiguration {
         writer.writeNotEmpty("dicomInstitutionDepartmentName", deviceInfo.getInstitutionalDepartmentNames());
         writer.writeNotEmpty("dicomPrimaryDeviceType", deviceInfo.getPrimaryDeviceTypes());
         gen.write("dicomInstalled", deviceInfo.getInstalled());
+        gen.writeEnd();
+    }
+
+    public void writeTo(ApplicationEntityInfo aetInfo, JsonGenerator gen) {
+        JsonWriter writer = new JsonWriter(gen);
+        gen.writeStartObject();
+        writer.writeNotNull("dicomDeviceName", aetInfo.getDeviceName());
+        writer.writeNotNull("dicomAETitle", aetInfo.getAeTitle());
+        writer.writeNotEmpty("dcmOtherAETitle", aetInfo.getOtherAETitle());
+        writer.writeNotNull("dicomDescription", aetInfo.getDescription());
+        gen.write("dicomAssociationInitiator", aetInfo.getAssociationInitiator());
+        gen.write("dicomAssociationAcceptor", aetInfo.getAssociationAcceptor());
+        writer.writeNotEmpty("dicomApplicationCluster", aetInfo.getApplicationCluster());
+        writer.writeNotNull("dicomInstalled", aetInfo.getInstalled());
         gen.writeEnd();
     }
 

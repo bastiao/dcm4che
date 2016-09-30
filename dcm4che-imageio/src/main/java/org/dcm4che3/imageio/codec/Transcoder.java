@@ -65,6 +65,7 @@ import java.awt.*;
 import java.awt.color.ColorSpace;
 import java.awt.image.*;
 import java.io.*;
+import java.util.List;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -93,6 +94,8 @@ public class Transcoder implements Closeable {
     private boolean closeInputStream = true;
 
     private boolean closeOutputStream = true;
+
+    private boolean deleteBulkDataFiles = true;
 
     private String destTransferSyntax;
 
@@ -131,6 +134,8 @@ public class Transcoder implements Closeable {
     private BufferedImage bi;
 
     private BufferedImage bi2;
+
+    private String pixelDataBulkDataURI;
 
     private byte[] buffer;
 
@@ -189,6 +194,14 @@ public class Transcoder implements Closeable {
         this.closeOutputStream = closeOutputStream;
     }
 
+    public boolean isDeleteBulkDataFiles() {
+        return deleteBulkDataFiles;
+    }
+
+    public void setDeleteBulkDataFiles(boolean deleteBulkDataFiles) {
+        this.deleteBulkDataFiles = deleteBulkDataFiles;
+    }
+
     public boolean isIncludeFileMetaInformation() {
         return includeFileMetaInformation;
     }
@@ -224,6 +237,18 @@ public class Transcoder implements Closeable {
             initDecompressor();
         if (destTransferSyntaxType != TransferSyntaxType.NATIVE)
             initCompressor(tsuid);
+    }
+
+    public String getPixelDataBulkDataURI() {
+        return pixelDataBulkDataURI;
+    }
+
+    public void setPixelDataBulkDataURI(String pixelDataBulkDataURI) {
+        this.pixelDataBulkDataURI = pixelDataBulkDataURI;
+    }
+
+    public List<File> getBulkDataFiles() {
+        return dis.getBulkDataFiles();
     }
 
     private void initDecompressor() {
@@ -285,8 +310,9 @@ public class Transcoder implements Closeable {
             verifier.dispose();
         if (closeInputStream)
             SafeClose.close(dis);
-        for (File tmpFile : dis.getBulkDataFiles())
-            tmpFile.delete();
+        if (deleteBulkDataFiles)
+            for (File tmpFile : dis.getBulkDataFiles())
+                tmpFile.delete();
         if (closeOutputStream && dos != null)
             dos.close();
     }
@@ -366,6 +392,7 @@ public class Transcoder implements Closeable {
         int padding = length & 1;
         adjustDataset();
         writeDataset();
+        setPixelDataBulkData(VR.OW);
         dos.writeHeader(Tag.PixelData, VR.OW, length + padding);
         for (int i = 0; i < imageDescriptor.getFrames(); i++) {
             decompressFrame(i);
@@ -378,6 +405,7 @@ public class Transcoder implements Closeable {
     private void copyPixelData() throws IOException {
         int length = dis.length();
         writeDataset();
+        setPixelDataBulkData(dis.vr());
         dos.writeHeader(Tag.PixelData, dis.vr(), length);
         if (length == -1) {
             dis.readValue(dis, dataset);
@@ -401,6 +429,7 @@ public class Transcoder implements Closeable {
                 extractEmbeddedOverlays();
                 adjustDataset();
                 writeDataset();
+                setPixelDataBulkData(VR.OB);
                 dos.writeHeader(Tag.PixelData, VR.OB, -1);
                 dos.writeHeader(Tag.Item, null, 0);
             }
@@ -411,6 +440,10 @@ public class Transcoder implements Closeable {
         dos.writeHeader(Tag.SequenceDelimitationItem, null, 0);
     }
 
+    private void setPixelDataBulkData(VR vr) {
+        if (pixelDataBulkDataURI != null)
+            dataset.setValue(Tag.PixelData, vr, new BulkData(null, pixelDataBulkDataURI, false));
+    }
 
     private void adjustDataset() {
         if (imageDescriptor.getSamples() == 3) {

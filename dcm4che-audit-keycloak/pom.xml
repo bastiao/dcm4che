@@ -45,11 +45,11 @@
   <parent>
     <artifactId>dcm4che-parent</artifactId>
     <groupId>org.dcm4che</groupId>
-    <version>dcm4chee-arc-light-5.5.2</version>
+    <version>dcm4chee-arc-light-5.7.0</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <properties>
-    <keycloak.version>1.9.1.Final</keycloak.version>
+    <keycloak.version>2.1.0.Final</keycloak.version>
   </properties>
   <artifactId>dcm4che-audit-keycloak</artifactId>
   <dependencyManagement>
@@ -77,11 +77,6 @@
     <dependency>
       <groupId>org.keycloak</groupId>
       <artifactId>keycloak-core</artifactId>
-      <version>${keycloak.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.keycloak</groupId>
-      <artifactId>keycloak-adapter-core</artifactId>
       <version>${keycloak.version}</version>
     </dependency>
     <dependency>

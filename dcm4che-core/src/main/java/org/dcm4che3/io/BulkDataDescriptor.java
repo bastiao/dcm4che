@@ -64,11 +64,22 @@ public abstract class BulkDataDescriptor {
             case Tag.SpectroscopyData:
             case Tag.OverlayData:
             case Tag.EncapsulatedDocument:
+            case Tag.FloatPixelData:
+            case Tag.DoubleFloatPixelData:
             case Tag.PixelData:
                 return itemPointer.isEmpty();
             case Tag.WaveformData:
                 return itemPointer.size() == 1 
                     && itemPointer.get(0).sequenceTag == Tag.WaveformSequence;
+            }
+            switch (vr) {
+                case OB:
+                case OD:
+                case OF:
+                case OL:
+                case OW:
+                case UN:
+                    return length > 64;
             }
             return false;
         }

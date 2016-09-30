@@ -43,21 +43,9 @@ import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.Hashtable;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-import javax.naming.Context;
-import javax.naming.NameAlreadyBoundException;
-import javax.naming.NameClassPair;
-import javax.naming.NameNotFoundException;
-import javax.naming.NamingEnumeration;
-import javax.naming.NamingException;
+import javax.naming.*;
 import javax.naming.directory.Attribute;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttribute;
@@ -74,14 +62,7 @@ import org.dcm4che3.conf.api.ConfigurationException;
 import org.dcm4che3.conf.api.ConfigurationNotFoundException;
 import org.dcm4che3.conf.api.DicomConfiguration;
 import org.dcm4che3.data.Issuer;
-import org.dcm4che3.net.ApplicationEntity;
-import org.dcm4che3.net.Connection;
-import org.dcm4che3.net.Device;
-import org.dcm4che3.net.DeviceInfo;
-import org.dcm4che3.net.Dimse;
-import org.dcm4che3.net.QueryOption;
-import org.dcm4che3.net.StorageOptions;
-import org.dcm4che3.net.TransferCapability;
+import org.dcm4che3.net.*;
 import org.dcm4che3.net.Connection.Protocol;
 import org.dcm4che3.util.StringUtils;
 import org.slf4j.Logger;
@@ -89,6 +70,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  *
  */
 public final class LdapDicomConfiguration implements DicomConfiguration {
@@ -285,11 +267,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         if (!configurationExists())
             throw new ConfigurationNotFoundException();
 
-        SearchControls ctls = new SearchControls();
-        ctls.setSearchScope(SearchControls.SUBTREE_SCOPE);
-        ctls.setCountLimit(1);
-        ctls.setReturningAttributes(StringUtils.EMPTY_STRING);
-        ctls.setReturningObjFlag(false);
+        SearchControls ctls = searchControlSubtreeScope(1, StringUtils.EMPTY_STRING, false);
         NamingEnumeration<SearchResult> ne = null;
         String childDN;
         try {
@@ -305,6 +283,15 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         }
         String deviceDN = childDN.substring(childDN.indexOf(',') + 1);
         return loadDevice(deviceDN);
+    }
+
+    private SearchControls searchControlSubtreeScope(int countLimit, String[] returningAttrs, boolean returningObjFlag) {
+        SearchControls ctls = new SearchControls();
+        ctls.setSearchScope(SearchControls.SUBTREE_SCOPE);
+        ctls.setCountLimit(countLimit);
+        ctls.setReturningAttributes(returningAttrs);
+        ctls.setReturningObjFlag(returningObjFlag);
+        return ctls;
     }
 
     @Override
@@ -418,6 +405,25 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
                 LdapUtils.booleanValue(attrs.get("dicomInstalled"), true));
     }
 
+    private void loadFrom(ApplicationEntityInfo aetInfo, Attributes attrs, String deviceName)
+            throws NamingException {
+        aetInfo.setDeviceName(deviceName);
+        aetInfo.setAeTitle(
+                LdapUtils.stringValue(attrs.get("dicomAETitle"), null));
+        aetInfo.setOtherAETitle(
+                LdapUtils.stringArray(attrs.get("dcmOtherAETitle")));
+        aetInfo.setDescription(
+                LdapUtils.stringValue(attrs.get("dicomDescription"), null));
+        aetInfo.setAssociationInitiator(
+                LdapUtils.booleanValue(attrs.get("dicomAssociationInitiator"), true));
+        aetInfo.setAssociationAcceptor(
+                LdapUtils.booleanValue(attrs.get("dicomAssociationAcceptor"), true));
+        aetInfo.setInstalled(
+                LdapUtils.booleanValue(attrs.get("dicomInstalled"), null));
+        aetInfo.setApplicationCluster(
+                LdapUtils.stringArray(attrs.get("dicomApplicationCluster")));
+    }
+
     @Override
     public synchronized String[] listDeviceNames() throws ConfigurationException {
         if (!configurationExists())
@@ -504,19 +510,23 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         for (LdapDicomConfigurationExtension ext : extensions)
             ext.storeChilds(deviceDN, device);
         for (ApplicationEntity ae : device.getApplicationEntities()) {
-            String aeDN = aetDN(ae.getAETitle(), deviceDN);
-            createSubcontext(aeDN, storeTo(ae, deviceDN, new BasicAttributes(true)));
-            storeChilds(aeDN, ae);
-            for (LdapDicomConfigurationExtension ext : extensions) {
-                ext.storeChilds(aeDN, ae);
-            }
+            store(ae, deviceDN);
         }
+    }
+
+    private void store(ApplicationEntity ae, String deviceDN) throws NamingException {
+        String aeDN = aetDN(ae.getAETitle(), deviceDN);
+        createSubcontext(aeDN, storeTo(ae, deviceDN, new BasicAttributes(true)));
+        storeChilds(aeDN, ae);
     }
 
     private void storeChilds(String aeDN, ApplicationEntity ae)
             throws NamingException {
         for (TransferCapability tc : ae.getTransferCapabilities())
             createSubcontext(dnOf(tc, aeDN), storeTo(tc, new BasicAttributes(true)));
+
+        for (LdapDicomConfigurationExtension ext : extensions)
+            ext.storeChilds(aeDN, ae);
     }
 
     @Override
@@ -643,11 +653,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
    private boolean findConfiguration() throws ConfigurationException {
         NamingEnumeration<SearchResult> ne = null;
         try {
-            SearchControls ctls = new SearchControls();
-            ctls.setSearchScope(SearchControls.SUBTREE_SCOPE);
-            ctls.setCountLimit(1);
-            ctls.setReturningAttributes(StringUtils.EMPTY_STRING);
-            ctls.setReturningObjFlag(false);
+            SearchControls ctls = searchControlSubtreeScope(1, StringUtils.EMPTY_STRING, false);
             ne = ctx.search(
                     baseDN,
                     "(&(objectclass=" + configurationRoot
@@ -1605,10 +1611,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         for (ApplicationEntity ae : dev.getApplicationEntities()) {
             String aet = ae.getAETitle();
             if (!prevAETs.contains(aet)) {
-                String aeDN = aetDN(ae.getAETitle(), deviceDN);
-                createSubcontext(aeDN,
-                        storeTo(ae, deviceDN, new BasicAttributes(true)));
-                storeChilds(aeDN, ae);
+                store(ae, deviceDN);
             } else
                 merge(prevDev.getApplicationEntity(aet), ae, deviceDN);
         }
@@ -1817,6 +1820,78 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
     public void sync() throws ConfigurationException {
         // NOOP
     }
-    
 
+    @Override
+    public synchronized ApplicationEntityInfo[] listAETInfos(ApplicationEntityInfo keys)
+            throws ConfigurationException {
+        if (!configurationExists())
+            return new ApplicationEntityInfo[0];
+
+        ArrayList<ApplicationEntityInfo> results = new ArrayList<ApplicationEntityInfo>();
+        NamingEnumeration<SearchResult> ne = null;
+        try {
+            ne = searchAE(keys);
+            while (ne.hasMore()) {
+                ApplicationEntityInfo aetInfo = new ApplicationEntityInfo();
+                SearchResult ne1 = ne.next();
+                NameParser parser = ctx.getDirCtx().getNameParser(ne1.getNameInNamespace());
+                Name n = parser.parse(ne1.getNameInNamespace());
+                Enumeration<String> s1 = n.getAll();
+                loadFrom(aetInfo, ne1.getAttributes(), getDeviceName(s1));
+                results.add(aetInfo);
+            }
+        } catch (NamingException e) {
+            throw new ConfigurationException(e);
+        } finally {
+            LdapUtils.safeClose(ne);
+        }
+        return results.toArray(new ApplicationEntityInfo[results.size()]);
+    }
+
+    private String getDeviceName(Enumeration<String> s1) {
+        while (s1.hasMoreElements()) {
+            String s2 = s1.nextElement();
+            if (s2.startsWith("dicomDeviceName"))
+                return s2.substring(s2.indexOf("=")+1);
+        }
+        return null;
+    }
+
+    private NamingEnumeration<SearchResult> searchAE(ApplicationEntityInfo keys) throws NamingException {
+        List<String> attrs = new ArrayList<>();
+        attrs.add("dicomDeviceName");
+        attrs.add("dicomAETitle");
+        attrs.add("dcmOtherAETitle");
+        attrs.add("dicomDescription");
+        attrs.add("dicomAssociationInitiator");
+        attrs.add("dicomAssociationAcceptor");
+        attrs.add("dicomApplicationCluster");
+        attrs.add("dicomInstalled");
+        String[] attrsArray = attrs.toArray(new String[attrs.size()]);
+        SearchControls ctls = searchControlSubtreeScope(0, attrsArray, true);
+        return keys.getDeviceName() != null
+                ? search(deviceRef(keys.getDeviceName()), toFilter(keys), attrsArray)
+                : ctx.search(devicesDN, toFilter(keys), ctls);
+    }
+
+    private String toFilter(ApplicationEntityInfo keys) {
+        if (keys == null)
+            return "(objectclass=dicomNetworkAE)";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("(&(objectclass=dicomNetworkAE)");
+        if (keys.getAeTitle() != null) {
+            sb.append("(|");
+            appendFilter("dicomAETitle", keys.getAeTitle(), sb);
+            appendFilter("dcmOtherAETitle", keys.getAeTitle(), sb);
+            sb.append(")");
+        } else
+            appendFilter("dicomAETitle", keys.getAeTitle(), sb);
+        appendFilter("dicomDescription", keys.getDescription(), sb);
+        appendFilter("dicomAssociationInitiator", keys.getAssociationInitiator(), sb);
+        appendFilter("dicomAssociationAcceptor", keys.getAssociationAcceptor(), sb);
+        appendFilter("dicomApplicationCluster", keys.getApplicationCluster(), sb);
+        sb.append(")");
+        return sb.toString();
+    }
 }

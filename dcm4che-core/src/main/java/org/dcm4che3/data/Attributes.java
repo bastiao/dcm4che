@@ -71,6 +71,11 @@ public class Attributes implements Serializable {
                 throws Exception;
     }
 
+    public interface SequenceVisitor extends Visitor {
+        void startItem(int sqTag, int itemIndex);
+        void endItem();
+    }
+
     public enum UpdatePolicy { SUPPLEMENT, MERGE, OVERWRITE, REPLACE }
 
     private static final Logger LOG = 
@@ -2455,9 +2460,15 @@ public class Attributes implements Serializable {
             if (!visitor.visit(this, tags[i], vrs[i], values[i]))
                 return false;
             if (visitNestedDatasets && (values[i] instanceof Sequence)) {
+                int itemIndex = 0;
                 for (Attributes item : (Sequence) values[i]) {
+                    if (visitor instanceof SequenceVisitor)
+                        ((SequenceVisitor) visitor).startItem(tags[i], itemIndex);
                     if (!item.accept(visitor, true))
                         return false;
+                    if (visitor instanceof SequenceVisitor)
+                        ((SequenceVisitor) visitor).endItem();
+                    itemIndex++;
                 }
             }
         }
@@ -3021,4 +3032,25 @@ public class Attributes implements Serializable {
         }
     }
 
+    public int removeAllBulkData() {
+        int removed = 0;
+        for (int i = 0; i < size; i++) {
+            Object value = values[i];
+            if (value instanceof BulkData) {
+                int srcPos = i + 1;
+                int len = size - srcPos;
+                System.arraycopy(tags, srcPos, tags, i, len);
+                System.arraycopy(vrs, srcPos, vrs, i, len);
+                System.arraycopy(values, srcPos, values, i, len);
+                i--;
+                size--;
+                removed++;
+            } else if (value instanceof Sequence) {
+                for (Attributes item : (Sequence) value) {
+                    removed += item.removeAllBulkData();
+                }
+            }
+        }
+        return removed;
+    }
 }
