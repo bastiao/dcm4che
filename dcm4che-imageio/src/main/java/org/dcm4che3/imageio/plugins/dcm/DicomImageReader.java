@@ -560,7 +560,7 @@ public class DicomImageReader extends ImageReader {
                 for (Attributes refImg : refImgs) {
                     if (iuid.equals(refImg.getString(Tag.ReferencedSOPInstanceUID))) {
                         int[] refFrames = refImg.getInts(Tag.ReferencedFrameNumber);
-                        if (refFrames == null)
+                        if (refFrames == null  || refFrames.length == 0)
                             return voiLUT;
     
                         for (int refFrame : refFrames)
