@@ -4,16 +4,16 @@
 	<parent>
 		<groupId>org.dcm4che</groupId>
 		<artifactId>dcm4che-parent</artifactId>
-		<version>dcm4chee-arc-light-5.5.2</version>
+		<version>dcm4chee-arc-light-5.7.0</version>
 	</parent>
 	<artifactId>dcm4che-imageio-codec</artifactId>
 	<name>dcm4che-imageio-codec</name>
 
 	<properties>
-		<jai_imageio.version>1.2.3</jai_imageio.version>
+		<jai_imageio.version>1.2.4</jai_imageio.version>
 		<weasis.version>2.5.0-SNAPSHOT</weasis.version>
-		<jpeg.version>1.0.5-6b</jpeg.version>
-		<openjpeg.version>2.1.7</openjpeg.version>
+		<jpeg.version>1.0.7-6b</jpeg.version>
+		<openjpeg.version>2.1.8</openjpeg.version>
 
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 	</properties>
