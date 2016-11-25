@@ -11,7 +11,7 @@
 
 	<properties>
 		<jai_imageio.version>1.2.4</jai_imageio.version>
-		<weasis.version>2.5.0-SNAPSHOT</weasis.version>
+		<weasis.version>2.5.1-SNAPSHOT</weasis.version>
 		<jpeg.version>1.0.7-6b</jpeg.version>
 		<openjpeg.version>2.1.8</openjpeg.version>
 

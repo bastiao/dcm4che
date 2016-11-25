@@ -1,3 +1,4 @@
+org.weasis.jpeg.NativeJLSLossyImageWriterSpi
 org.weasis.jpeg.NativeJLSImageWriterSpi
 # org.weasis.jpeg.NativeJPEGImageWriterSpi
 # org.weasis.openjpeg.NativeJ2kImageWriterSpi

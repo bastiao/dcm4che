@@ -46,13 +46,9 @@
 			patchJPEGLS="JAI2ISO" params="compressionType=JPEG-LS" />
 	</element>
 	<element tsuid="1.2.840.10008.1.2.4.81">
-		<writer format="jpeg-ls" name="Native CharLS jpeg encoder"
+		<writer format="jpeg-ls" name="Native CharLS nearlossless jpeg encoder"
 			sys="linux-x86,linux-x86-64,windows-x86,windows-x86-64,macosx-x86-64"
-			class="org.weasis.jpeg.NativeJLSImageWriter" />
-		<writer format="jpeg" name="Sun native jpeg-ls encoder"
-			sys="linux-x86,linux-x86-64,windows-x86,solaris-x86,solaris-x86-64,solaris-sparc,solaris-sparcv9"
-			class="com.sun.media.imageioimpl.plugins.jpeg.CLibJPEGImageWriter"
-			params="compressionType=JPEG-LS" />
+			class="org.weasis.jpeg.NativeJLSLossyImageWriter" />
 	</element>
 	<element tsuid="1.2.840.10008.1.2.4.90">
 		<writer format="jpeg2000" name="Native OpenJPEG encoder"
